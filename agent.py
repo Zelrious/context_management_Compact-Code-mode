@@ -1,4 +1,4 @@
-"""Full Challenge A agent: context + harness + tools + loop + progressive skills."""
+"""Skills-based CSV/report agent with persistent memory and Challenge B context modes."""
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware

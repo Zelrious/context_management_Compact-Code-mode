@@ -1,5 +1,11 @@
 # Kế hoạch chia việc Challenge B
 
+## Agent nền được kế thừa
+
+Chức năng gốc là agent dùng skills để xử lý công việc từ workspace: `csv-quality` dùng tool `bash` chạy script kiểm tra CSV, tính giờ và tìm quá tải theo ngưỡng người dùng nêu; `weekly-report` dùng `read_file` để lấy ghi chú và template, rồi `write_file` để lưu báo cáo Markdown. Agent nạp metadata skills lúc khởi tạo và đọc nội dung skill theo nhu cầu.
+
+Challenge A bổ sung memory quy ước qua session. Challenge B tiếp tục trên agent này: B1 Compact áp dụng lên lịch sử hội thoại của mọi nhiệm vụ; B2 Code Mode là luồng bổ sung để tổng hợp nhiều log. Native tools + Compact vẫn là chế độ giữ các skills CSV/báo cáo ban đầu. Code Mode hiện chỉ tập trung log, không thay thế các skills đó.
+
 ## Mục tiêu theo slide
 
 - **B1 — Compact (bắt buộc):** nén session dài thành checkpoint có cấu trúc, để agent tiếp tục đúng việc. Checkpoint giữ mục tiêu, yêu cầu/ràng buộc, trạng thái, phát hiện, lỗi chưa xử lý, cách đã thử, file liên quan và bước tiếp theo. Log thô và kết quả trùng lặp được lưu ngoài working context.

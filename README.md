@@ -1,10 +1,12 @@
 # Challenge B — Context Management Agent
 
-## Chức năng ban đầu của agent
+## Chức năng gốc và các phần phát triển thêm
 
-Agent này được phát triển tiếp từ bài Challenge A. Ở phiên bản ban đầu, agent hỗ trợ làm việc với workspace dự án: đọc/ghi tệp, chạy lệnh, nạp skill theo nhu cầu và ghi nhớ quy ước dự án qua nhiều session. Quy ước được lưu bền vững trong `memory/memory.json`; khi người dùng xác nhận thay đổi, bản mới thành `current`, bản cũ được giữ trong lịch sử với trạng thái `superseded`.
+Agent gốc của bài thực hành là **agent sử dụng skills để làm việc với dữ liệu workspace**. Skill `csv-quality` hướng dẫn agent dùng script để kiểm tra file CSV, tính tổng giờ theo người và xác định người quá tải theo ngưỡng người dùng đưa ra. Skill `weekly-report` hướng dẫn agent đọc ghi chú tiến độ cùng template rồi tạo báo cáo Markdown. Các tool nền gồm `read_file`, `write_file` và `bash`; agent chỉ nhận metadata skills ban đầu, rồi đọc `SKILL.md` phù hợp qua `read_file` khi cần.
 
-Challenge B giữ lại harness, giao diện quan sát, memory và skills của agent nền, đồng thời tập trung xử lý hai vấn đề context: rút gọn session dài mà vẫn giữ được trạng thái công việc (B1, bắt buộc), và tổng hợp nhiều log trong runtime để không đưa log thô vào context của model (B2, phần cộng điểm).
+Sau chức năng gốc, bài Challenge A bổ sung memory quy ước bền vững qua nhiều session. Khi người dùng xác nhận thay đổi, quy ước mới thành `current`, bản cũ được lưu trong lịch sử với trạng thái `superseded`.
+
+Challenge B phát triển tiếp trên nền đó. **B1 Compact** nén lịch sử dài thành checkpoint để agent giữ được yêu cầu, lỗi đang xử lý, lần thử và bước kế tiếp. **B2 Code Mode** là chế độ bổ sung để agent tổng hợp nhiều file log trong runtime mà không đưa log thô vào context. Ở chế độ **Native tools + Compact**, agent vẫn có các tools và skills gốc để xử lý CSV và báo cáo tuần. Code Mode hiện tập trung vào log và không thay thế luồng skill CSV.
 
 ## Chuẩn bị và chạy
 
