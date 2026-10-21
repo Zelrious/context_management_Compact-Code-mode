@@ -58,6 +58,8 @@ Runtime dùng AST interpreter với tập lệnh Python giới hạn, không g�
 
 Phân công chi tiết, file bàn giao và tiêu chí nghiệm thu nằm trong [`TEAM-PLAN.md`](TEAM-PLAN.md). Mỗi thành viên nên làm trên nhánh riêng, mở PR vào nhánh tích hợp và không commit secrets hoặc dữ liệu thật.
 
+Bảng Excel để nhập người nhận việc, hạn chót và trạng thái: [Tải bảng phân công](outputs/01a15c38-883e-7e23-b009-88b7ed4709af/Phan-cong-Challenge-B.xlsx).
+
 ## Cấu trúc chính
 
 - `app.py`, `agent.py`, `observer.py`, `prompts.py`: giao diện, loop và quan sát.
