@@ -1,0 +1,6 @@
+.env
+traces/*
+!traces/.gitkeep
+__pycache__/
+.pytest_cache/
+.venv/

@@ -1,0 +1,4 @@
+2026-10-20T09:00:00Z INFO request accepted
+2026-10-20T09:00:01Z WARN upstream latency above threshold
+2026-10-20T09:00:02Z ERROR upstream timeout request_id=demo-001
+2026-10-20T09:00:03Z INFO retry scheduled
