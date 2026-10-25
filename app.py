@@ -482,7 +482,7 @@ def compact_current_session(force: bool = True) -> dict | None:
     needed, reason = should_compact(messages, int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS)))
     if not force and not needed:
         return None
-    compacted = compact_messages(messages)
+    compacted = compact_messages(messages, prior_checkpoint=ss.get("compaction_checkpoint"))
     ss.compaction_archive.extend(compacted.archived_messages)
     ss.model_history = compacted.messages
     ss.compaction_checkpoint = compacted.checkpoint.__dict__
@@ -499,23 +499,38 @@ def compact_current_session(force: bool = True) -> dict | None:
 
 
 def load_long_session_demo() -> None:
-    """Seed a repeatable session with large synthetic outputs for B1, no API call."""
+    """Seed a long CSV-analysis session matching the agent's original skills, no API call."""
     ss = st.session_state
-    history = [HumanMessage(content="Điều tra lỗi race condition khi refresh token; giữ tương thích API và tìm nguyên nhân trong auth/session.")]
+    history = [HumanMessage(content=(
+        "Phân tích data/workload.csv theo ngưỡng quá tải 8 giờ; tổng đúng bằng 8 không tính quá tải. "
+        "Không sửa CSV và ghi rõ các dòng bị loại cùng lý do."
+    ))]
     for index in range(8):
         call_id = f"demo-call-{index:02d}"
-        command = "pytest tests/auth_test.py -q" if index < 3 else "grep -R refresh src/"
+        input_file = "data/missing.csv" if index == 0 else "data/workload.csv"
+        command = f"python skills/csv-quality/scripts/check_csv.py --input {input_file} --max-hours 8"
         history.append(AIMessage(content="", tool_calls=[{"name": "bash", "args": {"command": command}, "id": call_id, "type": "tool_call"}]))
-        if index in (0, 2):
-            payload = {"ok": False, "exit_code": 1, "stderr": f"FAILED refresh_race_test_{index}: concurrent refresh produced stale token", "error": {"code": "TEST_FAILED", "message": "race condition vẫn tái hiện"}}
+        if index == 0:
+            payload = {"ok": False, "exit_code": 2, "stderr": "File not found: data/missing.csv", "error": {"code": "INPUT_NOT_FOUND"}}
             status = "error"
         else:
-            payload = {"ok": True, "exit_code": 0, "stdout": (f"[synthetic log {index}] INFO refresh request\n" * 230), "stderr": ""}
+            payload = {
+                "ok": True,
+                "exit_code": 0,
+                "path": "data/workload.csv",
+                "row_count": 6,
+                "overloaded_owners": ["Lan"],
+                "stdout": (f"synthetic CSV analysis result {index}; owner totals and excluded row details\n" * 230),
+            }
             status = "success"
         history.append(ToolMessage(content=json.dumps(payload, ensure_ascii=False), name="bash", tool_call_id=call_id, status=status))
-        history.append(AIMessage(content="Tăng token TTL không giải quyết lỗi; lỗi vẫn xảy ra khi hai request refresh đồng thời. Bước kế tiếp: kiểm tra locking quanh refresh trong auth.ts và session.ts."))
-        if index in (3, 6):
-            history.append(HumanMessage(content="Không đổi public API; giữ nguyên hành vi refresh token cho client cũ."))
+        if index == 0:
+            assistant_text = "Lần chạy thất bại vì đường dẫn data/missing.csv không tồn tại; chưa có kết quả phân tích. Bước tiếp theo: chạy lại với data/workload.csv."
+        else:
+            assistant_text = "Đã chạy script CSV thành công với ngưỡng 8 giờ; tổng bằng ngưỡng không bị tính quá tải. Bước tiếp theo: đối chiếu skill và template rồi ghi output/csv-quality.md, giữ nguyên CSV nguồn."
+        history.append(AIMessage(content=assistant_text))
+        if index in (2, 5):
+            history.append(HumanMessage(content="Tiếp tục giữ ngưỡng 8 giờ, không sửa dữ liệu nguồn và liệt kê từng dòng bị loại với đầy đủ mã lý do."))
     ss.model_history = history
     ss.compaction_archive = []
     ss.compaction_checkpoint = None
@@ -535,6 +550,12 @@ def render_compaction_lab() -> None:
         )
         before = message_chars(ss.model_history)
         st.metric("Active message context", f"{before:,} ký tự", help="Ước lượng theo nội dung message; không tính tokenizer của provider.")
+        if not ss.model_history:
+            st.info("Session đang trống. Câu hỏi đầu tiên sẽ gọi model ngay vì chưa có lịch sử để compact. Muốn thử tự compact, bấm **Nạp session dài mẫu** trước rồi xác nhận context tăng lên khoảng 120.000 ký tự.")
+        elif before < int(ss.compact_trigger_chars):
+            st.caption(f"Context hiện dưới ngưỡng {int(ss.compact_trigger_chars):,} ký tự; lượt chat tiếp theo có thể gọi model mà không compact.")
+        else:
+            st.info("Context đã vượt ngưỡng. Khi gửi câu hỏi tiếp theo, app sẽ compact trước rồi mới gọi model.")
         left, right = st.columns(2)
         if left.button("Nạp session dài mẫu", key="load_compact_demo", help="Tạo history giả có lỗi và log lớn; không gọi API."):
             load_long_session_demo()
@@ -578,7 +599,9 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
     needed, reason = should_compact(working, int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS)))
     if needed and len(ss.model_history) > 0:
         before_chars = message_chars(working)
-        result = compact_messages(working)
+        # The live-model path keeps only the newest complete turn, leaving more TPM
+        # headroom than the manual demo while the checkpoint preserves older constraints.
+        result = compact_messages(working, keep_turns=1, prior_checkpoint=ss.get("compaction_checkpoint"))
         ss.compaction_archive.extend(result.archived_messages)
         ss.compaction_checkpoint = result.checkpoint.__dict__
         ss.compaction_count += 1

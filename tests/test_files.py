@@ -39,7 +39,12 @@ def test_read_absolute_path_blocked(ws):
 
 def test_read_symlink_escape_blocked(ws):
     (ws.parent / "secret.txt").write_text("secret")
-    (ws / "data" / "link.txt").symlink_to(ws.parent / "secret.txt")
+    try:
+        (ws / "data" / "link.txt").symlink_to(ws.parent / "secret.txt")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows không cấp quyền tạo symlink cho tiến trình này")
+        raise
     result = _read(ws, "data/link.txt")
     assert result["error"]["code"] == "PATH_OUTSIDE_WORKSPACE"
     assert "content" not in result
@@ -72,7 +77,12 @@ def test_write_outside_output_rejected(ws, path):
 def test_write_absolute_and_symlink_escape_rejected(ws, tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
-    (ws / "output" / "escape").symlink_to(outside, target_is_directory=True)
+    try:
+        (ws / "output" / "escape").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows không cấp quyền tạo symlink cho tiến trình này")
+        raise
     assert _write(ws, str(ws / "output" / "a.md"), "x")["error"]["code"] == "PATH_OUTSIDE_WORKSPACE"
     assert _write(ws, "output/escape/a.md", "x")["ok"] is False
     assert list(outside.iterdir()) == []

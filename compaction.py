@@ -20,6 +20,7 @@ RAW_TOOL_CHARS_TRIGGER = 12_000
 MAX_CHECKPOINT_FIELD_CHARS = 900
 MAX_FAILURES = 8
 MAX_FINDINGS = 6
+COMPACT_TOOL_MESSAGE_CHARS = 2_000
 
 
 def _content_text(content: Any) -> str:
@@ -85,7 +86,7 @@ def _tool_summary(message: ToolMessage) -> tuple[str | None, str | None, str | N
             error = f"exit_code={payload.get('exit_code')}"
         # Preserve numeric counters only; arbitrary summary/error text may contain raw logs.
         fields = []
-        for key in ("count", "error_count", "warning_count", "files_read"):
+        for key in ("count", "row_count", "error_count", "warning_count", "files_read"):
             value = payload.get(key)
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 fields.append(f"{key}={value}")
@@ -96,6 +97,32 @@ def _tool_summary(message: ToolMessage) -> tuple[str | None, str | None, str | N
     if message.status == "error":
         return None, "tool returned a non-JSON error; raw output omitted", None
     return None, None, None
+
+
+def _compact_recent_tool_message(message: ToolMessage) -> ToolMessage:
+    """Keep tool-call protocol intact while removing oversized results from active context."""
+    original = _content_text(message.content)
+    if len(original) <= COMPACT_TOOL_MESSAGE_CHARS:
+        return message
+    path, error, finding = _tool_summary(message)
+    summary: dict[str, Any] = {
+        "compacted": True,
+        "omitted_chars": len(original),
+        "note": "Kết quả thô được giữ trong archive cục bộ của session.",
+    }
+    if path:
+        summary["path"] = path
+    if error:
+        summary["error"] = error
+    if finding:
+        summary["finding"] = finding
+    return ToolMessage(
+        content=json.dumps(summary, ensure_ascii=False),
+        tool_call_id=message.tool_call_id,
+        name=message.name,
+        status=message.status,
+        id=message.id,
+    )
 
 
 @dataclass
@@ -143,32 +170,52 @@ class CompactResult:
 def _last_complete_turn_start(messages: list[BaseMessage], keep_turns: int) -> int:
     starts = [i for i, message in enumerate(messages) if isinstance(message, HumanMessage)]
     if len(starts) <= keep_turns:
-        return len(messages)
+        # A short conversation already fits the retention policy; keep it intact.
+        return 0
     return starts[-keep_turns]
 
 
-def compact_messages(messages: list[BaseMessage], keep_turns: int = DEFAULT_KEEP_TURNS) -> CompactResult:
+def compact_messages(
+    messages: list[BaseMessage],
+    keep_turns: int = DEFAULT_KEEP_TURNS,
+    prior_checkpoint: ContextCheckpoint | dict[str, Any] | None = None,
+) -> CompactResult:
     if not messages:
         raise ValueError("Không có message để compact.")
+    if keep_turns < 1:
+        raise ValueError("keep_turns phải lớn hơn hoặc bằng 1.")
     before = message_chars(messages)
     recent_start = _last_complete_turn_start(messages, keep_turns)
-    archived = list(messages[:recent_start])
+    retained = list(messages[recent_start:])
+    omitted_recent_tools = [
+        message for message in retained
+        if isinstance(message, ToolMessage) and len(_content_text(message.content)) > COMPACT_TOOL_MESSAGE_CHARS
+    ]
+    # Preserve originals locally even when a large result belongs to a recent turn.
+    archived = [*messages[:recent_start], *omitted_recent_tools]
     users = _user_messages(messages)
     failures: list[str] = []
     findings: list[str] = []
     files: set[str] = set()
     unresolved: list[str] = []
     latest_assistant = ""
+    assistant_actions: list[str] = []
     attempted_actions: dict[str, str] = {}
 
     for message in messages:
         if isinstance(message, AIMessage):
-            if not message.tool_calls and message.text.strip():
+            # A checkpoint is an assistant note, not a new assistant finding.
+            is_checkpoint = bool(message.additional_kwargs.get("compaction_checkpoint")) or message.text.startswith(
+                "CHECKPOINT COMPACTION —"
+            )
+            if not is_checkpoint and not message.tool_calls and message.text.strip():
                 safe_lines = [
                     line for line in message.text.splitlines()
                     if len(line) <= 240 and not re.match(r"^\s*\d{4}-\d\d-\d\d[T ]\S*\s+(INFO|WARN|ERROR|DEBUG|TRACE)\b", line, re.I)
                 ]
                 latest_assistant = "\n".join(safe_lines).strip()[:MAX_CHECKPOINT_FIELD_CHARS]
+                if latest_assistant:
+                    assistant_actions.append(latest_assistant)
             for call in message.tool_calls:
                 args = call.get("args", {}) if isinstance(call, dict) else {}
                 call_id = call.get("id") if isinstance(call, dict) else None
@@ -195,11 +242,20 @@ def compact_messages(messages: list[BaseMessage], keep_turns: int = DEFAULT_KEEP
             if finding:
                 findings.append(f"{tool_name}: {finding}"[:MAX_CHECKPOINT_FIELD_CHARS])
 
-    goal = users[0] if users else ""
-    requirements = users[-8:]
+    def prior_value(name: str, default):
+        if isinstance(prior_checkpoint, ContextCheckpoint):
+            return getattr(prior_checkpoint, name, default)
+        if isinstance(prior_checkpoint, dict):
+            return prior_checkpoint.get(name, default)
+        return default
+
+    goal = prior_value("goal", "") or (users[0] if users else "")
+    requirements = list(dict.fromkeys([*prior_value("user_requirements", []), *users]))[-8:]
     # No LLM-generated inference: if the assistant did not state a concrete next step,
     # direct the next turn to continue from the exact latest user request and evidence.
-    next_action = latest_assistant or (
+    action_pattern = re.compile(r"\b(bước tiếp theo|tiếp theo|next action|next step|todo|cần .*tiếp tục)\b", re.I)
+    actionable_state = next((item for item in reversed(assistant_actions) if action_pattern.search(item)), "")
+    next_action = actionable_state or prior_value("next_action", "") or (
         f"Tiếp tục theo yêu cầu gần nhất của người dùng: {users[-1]}" if users else "Chờ yêu cầu tiếp theo của người dùng."
     )
     if latest_assistant and re.search(r"\b(error|failed|lỗi|chưa|tiếp theo|next)\b", latest_assistant, re.I):
@@ -209,17 +265,21 @@ def compact_messages(messages: list[BaseMessage], keep_turns: int = DEFAULT_KEEP
         version=1,
         goal=goal,
         user_requirements=requirements,
-        current_state=latest_assistant,
-        unresolved_issues=list(dict.fromkeys(unresolved))[-MAX_FAILURES:],
-        findings=list(dict.fromkeys(findings))[-MAX_FINDINGS:],
-        failed_attempts=list(dict.fromkeys(failures))[-MAX_FAILURES:],
-        relevant_files=sorted(files)[:20],
+        current_state=latest_assistant or prior_value("current_state", ""),
+        unresolved_issues=list(dict.fromkeys([*prior_value("unresolved_issues", []), *unresolved]))[-MAX_FAILURES:],
+        findings=list(dict.fromkeys([*prior_value("findings", []), *findings]))[-MAX_FINDINGS:],
+        failed_attempts=list(dict.fromkeys([*prior_value("failed_attempts", []), *failures]))[-MAX_FAILURES:],
+        relevant_files=sorted(set(prior_value("relevant_files", [])) | files)[:20],
         next_action=next_action,
-        archived_message_count=len(archived),
-        archived_tool_chars=raw_tool_chars(archived),
+        archived_message_count=int(prior_value("archived_message_count", 0)) + len(archived),
+        archived_tool_chars=int(prior_value("archived_tool_chars", 0)) + raw_tool_chars(archived),
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
-    compacted = [HumanMessage(content=checkpoint.render()), *messages[recent_start:]]
+    retained_messages = [_compact_recent_tool_message(message) for message in retained]
+    compacted = [
+        AIMessage(content=checkpoint.render(), additional_kwargs={"compaction_checkpoint": True}),
+        *retained_messages,
+    ]
     return CompactResult(
         messages=compacted,
         checkpoint=checkpoint,
