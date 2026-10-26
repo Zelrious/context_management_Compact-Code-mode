@@ -1,0 +1,4 @@
+0	2026-10-20T11:20:00Z INFO webhook received event=order.updated
+1	2026-10-20T11:20:01Z INFO signature validated
+2	2026-10-20T11:20:02Z ERROR downstream delivery failed status=503
+3	2026-10-20T11:20:03Z INFO webhook retry scheduled

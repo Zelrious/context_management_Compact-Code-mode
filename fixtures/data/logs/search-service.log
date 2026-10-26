@@ -1,0 +1,4 @@
+0	2026-10-20T11:10:00Z INFO index query started query_id=q-912
+1	2026-10-20T11:10:01Z INFO shard response received shard=3
+2	2026-10-20T11:10:02Z WARN query exceeded budget_ms=500
+3	2026-10-20T11:10:03Z INFO index query completed

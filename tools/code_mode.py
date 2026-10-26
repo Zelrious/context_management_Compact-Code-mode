@@ -136,6 +136,19 @@ class SafePythonSubset:
     def raw(value: Any) -> Any:
         return value.data if isinstance(value, Value) else value
 
+    @classmethod
+    def raw_deep(cls, value: Any) -> Any:
+        """Unwrap nested Value objects before passing data to approved builtins."""
+        if isinstance(value, Value):
+            return cls.raw_deep(value.data)
+        if isinstance(value, list):
+            return [cls.raw_deep(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(cls.raw_deep(item) for item in value)
+        if isinstance(value, dict):
+            return {cls.raw_deep(key): cls.raw_deep(item) for key, item in value.items()}
+        return value
+
     def run(self, source: str) -> Any:
         if not source.strip():
             raise CodeModeError("Chưa có chương trình.")
@@ -292,7 +305,7 @@ class SafePythonSubset:
 
     def call(self, function: Value, args: list[Value]) -> Value:
         target = function.data
-        raw_args = [self.raw(arg) for arg in args]
+        raw_args = [self.raw_deep(arg) for arg in args]
         if isinstance(target, Method):
             receiver = target.target
             if isinstance(receiver.data, ToolSDK):

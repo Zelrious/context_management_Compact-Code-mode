@@ -1,0 +1,4 @@
+0	2026-10-20T10:45:00Z INFO scheduled job claimed job_id=job-778
+1	2026-10-20T10:45:01Z INFO job step started step=export
+2	2026-10-20T10:45:02Z INFO job step completed step=export
+3	2026-10-20T10:45:03Z INFO scheduled job completed

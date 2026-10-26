@@ -1,0 +1,4 @@
+0	2026-10-20T10:25:00Z INFO outbound message accepted message_id=msg-401
+1	2026-10-20T10:25:01Z INFO delivery attempt started
+2	2026-10-20T10:25:02Z ERROR smtp response 451 temporary failure
+3	2026-10-20T10:25:03Z INFO delivery retry scheduled

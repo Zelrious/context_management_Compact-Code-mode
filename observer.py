@@ -202,6 +202,13 @@ class Observer:
     model_calls: int = 0
     event_seq: int = 0
     tool_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_input_tokens: int = 0
+    code_runs: int = 0
+    code_files_read: int = 0
+    code_input_bytes: int = 0
+    code_raw_log_chars_returned: int = 0
     status: str = STATUS_READY
     running_tools: dict[str, str] = field(default_factory=dict)
     turn_failed: bool = False
@@ -217,6 +224,13 @@ class Observer:
         self.model_calls = 0
         self.event_seq = 0
         self.tool_calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cached_input_tokens = 0
+        self.code_runs = 0
+        self.code_files_read = 0
+        self.code_input_bytes = 0
+        self.code_raw_log_chars_returned = 0
         self.running_tools = {}
         self.turn_failed = False
         self.history_rolled_back = False
@@ -268,6 +282,12 @@ class Observer:
         elif event_type == "model_response":
             event["model_call_index"] = self.model_calls
             event.update(data)
+            usage = data.get("usage") or {}
+            self.input_tokens += int(usage.get("input_tokens") or 0)
+            self.output_tokens += int(usage.get("output_tokens") or 0)
+            cached = usage.get("input_token_details", {}).get("cache_read")
+            cached = cached if cached is not None else usage.get("cache_read_input_tokens")
+            self.cached_input_tokens += int(cached or 0)
             if self.snapshots and self.snapshots[-1]["run_id"] == self.run_id:
                 self.snapshots[-1]["usage"] = data.get("usage")
         elif event_type == "tool_started":
@@ -278,6 +298,13 @@ class Observer:
         elif event_type == "tool_finished":
             self.running_tools.pop(data.get("tool_call_id"), None)
             event.update(data)
+            if data.get("tool_name") == "run_code":
+                result = data.get("result") if isinstance(data.get("result"), dict) else {}
+                self.code_runs += 1
+                self.code_files_read += int(result.get("files_read") or 0)
+                self.code_input_bytes += int(result.get("input_bytes_processed") or 0)
+                self.code_raw_log_chars_returned += int(result.get("raw_log_chars_returned_to_model") or 0)
+
         elif event_type == "run_completed":
             self.status = STATUS_DONE
             self.running_tools = {}
@@ -301,6 +328,13 @@ class Observer:
             "Lần gọi model trong lượt": self.model_calls,
             "Bước sự kiện trong lượt": self.event_seq,
             "Tool calls trong lượt": self.tool_calls,
+            "Input tokens": self.input_tokens,
+            "Output tokens": self.output_tokens,
+            "Cached input tokens": self.cached_input_tokens,
+            "Code runs": self.code_runs,
+            "Log files processed": self.code_files_read,
+            "Log bytes processed": self.code_input_bytes,
+            "Raw log chars returned": self.code_raw_log_chars_returned,
         }
 
     def inventory(self) -> dict[str, list[dict[str, Any]]]:

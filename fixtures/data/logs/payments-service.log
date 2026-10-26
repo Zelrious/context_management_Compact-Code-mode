@@ -1,0 +1,3 @@
+0	2026-10-20T11:05:00Z INFO payment authorization started payment_id=pay-882
+1	2026-10-20T11:05:01Z WARN authorization provider slow
+2	2026-10-20T11:05:02Z ERROR authorization declined code=insufficient_funds

@@ -1,0 +1,4 @@
+0	2026-10-20T10:05:00Z INFO cache warmup started
+1	2026-10-20T10:05:01Z INFO keys loaded count=1280
+2	2026-10-20T10:05:02Z WARN eviction rate above threshold
+3	2026-10-20T10:05:03Z INFO cache warmup completed

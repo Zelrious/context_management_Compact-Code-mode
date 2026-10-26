@@ -59,6 +59,32 @@ COUNTER_HELP = {
     "Bước sự kiện trong lượt": "Số thứ tự observer event trong lượt (user_submitted, model_request, …). Không phải LangGraph step.",
     "Tool calls trong lượt": "Số tool call đã thực thi; mỗi call có ID riêng. Một model response có thể yêu cầu nhiều tool calls.",
 }
+TOKEN_HELP = {
+    "Input tokens": "Tổng input_tokens provider trả về trong các model response đã quan sát.",
+    "Output tokens": "Tổng output_tokens provider trả về trong các model response đã quan sát.",
+    "Cached input tokens": "Cached input tokens nếu provider đưa chi tiết cache read.",
+}
+CODE_MODE_HELP = {
+    "Code runs": "Số lần run_code hoàn tất; runtime đọc log nhưng chỉ trả aggregate.",
+    "Log files processed": "Tổng số file log runtime đã đọc qua SDK.",
+    "Log bytes processed": "Tổng bytes log được xử lý bên trong runtime, không gửi nguyên văn cho model.",
+    "Raw log chars returned": "Số ký tự log thô runtime trả về tool result; mục tiêu Code Mode là 0.",
+}
+
+
+def render_observability_metrics(observer: Observer) -> None:
+    st.markdown("##### Usage & Code Mode evidence")
+    token_keys = list(TOKEN_HELP)
+    for pair in (token_keys[:2], token_keys[2:]):
+        for col, key in zip(st.columns(2, gap="small"), pair):
+            col.metric(key, f"{getattr(observer, {'Input tokens': 'input_tokens', 'Output tokens': 'output_tokens', 'Cached input tokens': 'cached_input_tokens'}[key]):,}", help=TOKEN_HELP[key], border=True)
+    code_keys = list(CODE_MODE_HELP)
+    for pair in (code_keys[:2], code_keys[2:]):
+        for col, key in zip(st.columns(2, gap="small"), pair):
+            col.metric(key, f"{getattr(observer, {'Code runs': 'code_runs', 'Log files processed': 'code_files_read', 'Log bytes processed': 'code_input_bytes', 'Raw log chars returned': 'code_raw_log_chars_returned'}[key]):,}", help=CODE_MODE_HELP[key], border=True)
+    st.caption("Token usage chỉ hiện khi provider trả usage. Log bytes là dữ liệu xử lý nội bộ; raw log chars returned phải bằng 0 để chứng minh không đưa log thô vào context.")
+
+
 CONTEXT_NOTE = (
     "Request ở lớp LangChain (system prompt, messages, tool schemas), không phải provider wire payload, "
     "tokenizer output hay nội dung bên trong model."
@@ -420,6 +446,7 @@ def render_context(observer: Observer, interactive: bool) -> None:
     with st.expander("Snapshot: metadata", icon=":material/info:"):
         st.json(meta, expanded=True)
         st.caption("usage chỉ có khi provider thực sự trả về sau response. Không có token estimate.")
+    render_observability_metrics(observer)
 
 
 def render_event_log(observer: Observer) -> None:
@@ -555,7 +582,7 @@ def render_compaction_lab() -> None:
 def render_code_mode_lab(mode: str) -> None:
     if mode != "code":
         return
-    with st.expander("B2 · Code Mode (điểm cộng)", expanded=True):
+    with st.expander("Code Mode", expanded=True):
         st.caption("Model chỉ được cấp run_code cùng memory tools. Chương trình đọc log qua SDK nội bộ, tổng hợp kết quả rồi mới trả findings; raw log không được trả lại model.")
         code = st.text_area("Chương trình tổng hợp log (Python subset giới hạn)", value=DEMO_CODE, height=210, key="code_mode_editor")
         if st.button("Chạy thử runtime cục bộ", key="run_code_demo"):
@@ -703,12 +730,12 @@ def main() -> None:
     st.caption(CAPABILITY_TEXT)
     mode_label = st.radio(
         "Chế độ tool",
-        ["Native tools + Compact", "Code Mode (B2)"],
+        ["Native tools + Compact", "Code Mode"],
         horizontal=True,
         key="challenge_mode_label",
         help="Compaction luôn hoạt động ở cả hai chế độ. Code Mode thay các tool file/shell bằng một tool chạy chương trình tổng hợp log.",
     )
-    mode = "code" if mode_label == "Code Mode (B2)" else "native"
+    mode = "code" if mode_label == "Code Mode" else "native"
     st.session_state.agent_mode = mode
 
     settings, missing = load_settings()

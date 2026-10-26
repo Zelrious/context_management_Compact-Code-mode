@@ -1,0 +1,3 @@
+0	2026-10-20T10:50:00Z INFO metrics scrape started target=api
+1	2026-10-20T10:50:01Z WARN scrape duration_ms=1204
+2	2026-10-20T10:50:02Z INFO metrics batch published samples=96
