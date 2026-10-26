@@ -1,5 +1,7 @@
 """Skills-based CSV/report agent with persistent memory and Challenge B context modes."""
 
+from __future__ import annotations
+
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain_openai import ChatOpenAI
@@ -9,7 +11,9 @@ from config import MODEL_CALL_LIMIT, TOOL_CALL_LIMIT, Settings
 from observer import ObserverMiddleware
 from prompts import build_system_prompt
 from skill_catalog import Catalog, render_catalog, scan_skills
-from tools import bash, read_file, write_file, remember_convention, search_memory, run_code
+from tools import bash, read_file, write_file, remember_convention, search_memory
+from tools.code_mode import run_code, execute_code
+from compaction import compact_messages, should_compact, message_chars, DEFAULT_TRIGGER_CHARS
 
 TOOLS = [read_file, write_file, bash, search_memory, remember_convention]
 CODE_MODE_TOOLS = [run_code, search_memory, remember_convention]
@@ -37,10 +41,7 @@ def load_catalog() -> Catalog:
 
 def system_prompt(mode: str = "native") -> str:
     from memory_store import render_injected_memory
-    prompt = build_system_prompt(render_catalog(load_catalog()), render_injected_memory())
-    if mode == "code":
-        prompt += "\n\nCode Mode:\n- Với câu hỏi trên log, gọi run_code bằng chương trình Python subset.\n- Runtime dùng tools.list_files(pattern) và tools.read_file(path) nội bộ; không yêu cầu đọc raw log qua tool khác.\n- Đếm/tổng hợp kết quả trong chương trình, gán findings cuối vào biến result. Không đưa dòng log thô vào result.\n- Nếu yêu cầu cần trích nguyên văn log, giải thích rằng Code Mode chỉ trả metadata/thống kê đã tổng hợp."
-    return prompt
+    return build_system_prompt(render_catalog(load_catalog()), render_injected_memory(), mode=mode)
 
 
 def capabilities(mode: str = "native") -> dict:

@@ -36,9 +36,27 @@ COMPACTION_PROMPT = """Compacted context:
 - Các log thô cũ có thể đã được lưu ngoài active context; không khẳng định đã đọc lại nếu tool không trả evidence mới.
 - Giữ nguyên lỗi chưa xử lý, lần thử, ràng buộc, file liên quan và bước kế tiếp trong suy luận/hành động."""
 
+CODE_MODE_PROMPT = """Code Mode:
+- Với câu hỏi trên log, gọi run_code bằng chương trình Python subset.
+- Runtime dùng tools.list_files(pattern) và tools.read_file(path) nội bộ; không yêu cầu đọc raw log qua tool khác.
+- Đếm/tổng hợp kết quả trong chương trình, gán findings cuối vào biến result. Không đưa dòng log thô vào result.
+- Nếu yêu cầu cần trích nguyên văn log, giải thích rằng Code Mode chỉ trả metadata/thống kê đã tổng hợp.
+- Giới hạn: code tối đa {max_code_chars:,} ký tự, đầu ra tối đa {max_output_chars:,} ký tự.
+- Chỉ dùng các tool hiện có: run_code, search_memory, remember_convention. Không yêu cầu read_file, write_file hay bash."""
 
-def build_system_prompt(catalog_block: str, memory_block: str = "") -> str:
-    parts = [BASE_PROMPT, CAPABILITY_PROMPT, COMPACTION_PROMPT]
+
+def build_system_prompt(catalog_block: str, memory_block: str = "", mode: str = "native") -> str:
+    """Tạo system prompt cho agent. Thêm hướng dẫn riêng theo chế độ."""
+    parts = [BASE_PROMPT]
+    if mode == "code":
+        from config import CODE_MODE_MAX_CODE_CHARS, CODE_MODE_MAX_OUTPUT_CHARS
+        parts.append(CODE_MODE_PROMPT.format(
+            max_code_chars=CODE_MODE_MAX_CODE_CHARS,
+            max_output_chars=CODE_MODE_MAX_OUTPUT_CHARS,
+        ))
+    else:
+        parts.append(CAPABILITY_PROMPT)
+    parts.append(COMPACTION_PROMPT)
     parts.append(MEMORY_PROMPT + "\n\n<project_memory>\n" + memory_block + "\n</project_memory>")
     if catalog_block:
         parts.append(f"{SKILLS_PROMPT}\n\n{catalog_block}")
