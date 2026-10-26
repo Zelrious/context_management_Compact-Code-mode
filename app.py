@@ -194,6 +194,14 @@ def usage_text(usage: dict | None) -> str:
     return f" | {usage.get('input_tokens')} in / {usage.get('output_tokens')} out tokens" if usage else ""
 
 
+def format_error_message(err: str | None) -> str:
+    if not err:
+        return ""
+    text = str(err).strip()
+    first_line = text.splitlines()[0] if text else ""
+    return first_line if len(first_line) <= 300 else first_line[:300] + "…"
+
+
 def render_events(events: list[dict]) -> None:
     """Các bước thực hiện của một lượt: model calls và tool calls theo đúng thứ tự event."""
     finished = {e["tool_call_id"]: e for e in events if e["type"] == "tool_finished"}
@@ -225,7 +233,7 @@ def render_events(events: list[dict]) -> None:
                 icon=":material/compress:",
             )
         elif kind == "run_failed":
-            st.error(f"Lượt thất bại: {event.get('error')}", icon=":material/error:")
+            st.error(f"Lượt thất bại: {format_error_message(event.get('error'))}", icon=":material/error:")
     if not shown:
         st.caption("Chưa có bước nào.")
 
@@ -304,7 +312,10 @@ def render_history() -> None:
             if turn["answer"]:
                 st.markdown(turn["answer"])
             if turn["error"]:
-                st.error(turn["error"], icon=":material/error:")
+                st.error(format_error_message(turn["error"]), icon=":material/error:")
+                if "\n" in str(turn["error"]) or len(str(turn["error"])) > 300:
+                    with st.expander("Chi tiết lỗi runtime"):
+                        st.code(str(turn["error"]), wrap_lines=True)
             with st.expander(steps_label(turn["events"]), icon=":material/route:"):
                 render_events(turn["events"])
 
@@ -355,7 +366,7 @@ def render_counters(observer: Observer) -> None:
         for col, key in zip(st.columns(2, gap="small"), pair):
             col.metric(key, counters[key], help=COUNTER_HELP[key], border=True)
     if observer.turn_failed:
-        st.error(f"Lượt {observer.chat_turn} lỗi: {observer.error}", icon=":material/error:")
+        st.error(f"Lượt {observer.chat_turn} lỗi: {format_error_message(observer.error)}", icon=":material/error:")
     if observer.history_rolled_back:
         st.warning("Model history đã rollback về trước lượt lỗi. Bảng message giữ trạng thái quan sát cuối của lượt lỗi.")
 
@@ -743,11 +754,20 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
             ss.model_history = result.messages[:-1]
             working = result.messages
 
+    writer = TraceWriter(paths.TRACES_DIR, PROJECT_NAME, observer.conversation_id, run_id, observer.chat_turn)
+
+    with st.chat_message("user"):
+        st.markdown(text)
+    with st.chat_message("assistant"):
+        status = st.status("Agent đang xử lý…", expanded=True)
+        trace_box = status.empty()
+        answer_box = st.empty()
+
     def refresh() -> None:
+        with trace_box.container():
+            render_events(turn["events"])
         with state_box.container():
             render_state_panel(interactive=False)
-
-    writer = TraceWriter(paths.TRACES_DIR, PROJECT_NAME, observer.conversation_id, run_id, observer.chat_turn)
 
     def emit(event_type: str, data: dict | None = None) -> None:
         event = observer.record(event_type, data)
@@ -760,10 +780,6 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
     observer.sync_messages(working)
     if compacted_before_turn is not None:
         emit("context_compacted", compacted_before_turn)
-
-    with st.chat_message("assistant"):
-        status = st.status("Agent đang xử lý…", expanded=True)
-        answer_box = st.empty()
 
     try:
         agent = build_agent(build_model(settings), mode=mode)
@@ -792,7 +808,7 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
         emit("run_failed", {"error": turn["error"]})
         observer.history_rolled_back = True
         status.update(label="Lỗi", state="error", expanded=True)
-        answer_box.error(turn["error"])
+        answer_box.error(format_error_message(turn["error"]))
     finally:
         refresh()
 
