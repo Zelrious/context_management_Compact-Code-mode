@@ -40,14 +40,17 @@ CODE_MODE_PROMPT = """Code Mode:
 - Với câu hỏi trên log, gọi run_code bằng chương trình Python subset.
 - Runtime dùng tools.list_files(pattern) và tools.read_file(path) nội bộ; không yêu cầu đọc raw log qua tool khác.
 - Đếm/tổng hợp kết quả trong chương trình, gán findings cuối vào biến result. Không đưa dòng log thô vào result.
-- Không dùng import, không dùng f-string phức tạp; dùng string nháy đơn giản để tránh lỗi định dạng JSON.
+- Giới hạn cú pháp Python subset:
+  + Không dùng import.
+  + Không gán dict bằng key (không dùng d[key] = val). Hãy dùng list và list.append(...)!
+  + Vòng lặp for chỉ dùng một biến đơn giản (for p in files:, KHÔNG dùng for k, v in ...).
 - Ví dụ code chuẩn:
 files = tools.list_files('**/*.log')
-counts = {{}}
+rows = []
 for p in files:
     content = tools.read_file(p)
-    counts[p] = content.count('ERROR')
-result = counts
+    rows.append({{'file': p, 'errors': content.count('ERROR')}})
+result = rows
 - Nếu yêu cầu cần trích nguyên văn log, giải thích rằng Code Mode chỉ trả metadata/thống kê đã tổng hợp.
 - Giới hạn: code tối đa {max_code_chars:,} ký tự, đầu ra tối đa {max_output_chars:,} ký tự.
 - Chỉ dùng các tool hiện có: run_code, search_memory, remember_convention. Không yêu cầu read_file, write_file hay bash."""
