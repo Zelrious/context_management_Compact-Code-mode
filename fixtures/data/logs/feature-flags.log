@@ -1,0 +1,3 @@
+0	2026-10-20T10:30:00Z INFO flag evaluation started
+1	2026-10-20T10:30:01Z INFO rollout active flag=checkout_v2 percent=25
+2	2026-10-20T10:30:02Z INFO flag evaluation completed

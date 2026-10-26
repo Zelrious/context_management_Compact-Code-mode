@@ -1,0 +1,3 @@
+0	2026-10-20T11:15:00Z INFO session created session_id=sess-901
+1	2026-10-20T11:15:01Z INFO session metadata persisted
+2	2026-10-20T11:15:02Z INFO session expiration scheduled ttl=3600

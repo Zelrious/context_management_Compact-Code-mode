@@ -1,0 +1,4 @@
+0	2026-10-20T10:00:00Z INFO invoice batch started
+1	2026-10-20T10:00:01Z INFO invoices queued count=42
+2	2026-10-20T10:00:02Z WARN payment provider latency_ms=842
+3	2026-10-20T10:00:03Z INFO invoice batch completed

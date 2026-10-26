@@ -1,0 +1,3 @@
+0	2026-10-20T11:00:00Z INFO order lookup started order_id=ord-5501
+1	2026-10-20T11:00:01Z INFO order state loaded state=processing
+2	2026-10-20T11:00:02Z INFO order lookup completed
