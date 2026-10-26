@@ -199,7 +199,13 @@ def format_error_message(err: str | None) -> str:
         return ""
     text = str(err).strip()
     first_line = text.splitlines()[0] if text else ""
-    return first_line if len(first_line) <= 300 else first_line[:300] + "…"
+    truncated = first_line if len(first_line) <= 300 else first_line[:300] + "…"
+    # Thay { } để tránh Streamlit / React xử lý như format string → trắng màn hình
+    sanitized = truncated.replace("{", "(").replace("}", ")")
+    # Loại ký tự Markdown có thể gây crash khi render
+    for ch in ("`", "*", "_", "<", ">"):
+        sanitized = sanitized.replace(ch, " ")
+    return sanitized
 
 
 def render_events(events: list[dict]) -> None:
@@ -903,7 +909,12 @@ def main() -> None:
     prompt = st.chat_input("Nhập yêu cầu…", disabled=bool(missing))
     if prompt and settings is not None:
         with chat_box:
-            run_turn(prompt, settings, state_box, mode)
+            try:
+                run_turn(prompt, settings, state_box, mode)
+            except Exception as _fatal:
+                # Lớp bảo vệ cuối: nếu run_turn() tự crash thì vẫn giữ UI
+                _err_type = type(_fatal).__name__
+                st.error(f"Lỗi nghiêm trọng không khôi phục được: {_err_type}")
         st.rerun()
 
 
