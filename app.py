@@ -52,7 +52,7 @@ from trace import TraceWriter, log_exception
 PANEL_HEIGHT = 600  # chiều cao dự phòng (px); CSS bên dưới kéo hai cột theo chiều cao cửa sổ
 PAGE_CSS = """
 <style>
-[data-testid="stAppScrollToBottomContainer"] { overflow: hidden; }
+[data-testid="stAppScrollToBottomContainer"] { overflow: auto !important; }
 [data-testid="stMainBlockContainer"] { padding-top: 3rem; padding-bottom: 0; }
 [data-testid="stBottomBlockContainer"] { padding-top: 0.5rem; padding-bottom: 1rem; }
 [data-testid="stLayoutWrapper"]:has(> .st-key-chat_panel),
@@ -151,101 +151,149 @@ def render_memory_lab() -> None:
             replaced_topics = st.multiselect(
                 "Gộp và thay thế thêm các chủ đề hiện hành cùng nghĩa",
                 [value for value in current_topics if value != topic],
-                help="Các mục chọn ở đây vẫn được giữ trong file với trạng thái superseded.",
+                help="Các mục chọn ở đây vẫn được giữ trong lịch sử nhưng chuyển thành superseded.",
             )
-            rule = st.text_area("Nội dung quy ước", placeholder="Mọi câu trả lời bằng tiếng Việt; hoặc test dùng pytest -q…")
-            submitted = st.form_submit_button("Lưu quy ước vào memory.json")
-            if submitted and topic.strip() and rule.strip():
-                try:
-                    memory_store.record_rule(topic.strip(), rule.strip(), "manual_ui", replaced_topics=replaced_topics)
-                    st.success(f"Đã lưu quy ước cho chủ đề `{topic.strip()}`.")
-                    st.rerun()
-                except ValueError as exc:
-                    st.error(str(exc))
-        current = memory_store.current_entries()
-        st.markdown(f"**Quy ước hiện hành ({len(current)})**")
-        if not current:
-            st.caption("Chưa có quy ước hiện hành.")
-        for item in current:
-            st.markdown(f"- **{item['topic']}** (v{item['version']}): {item['rule']}")
-        history = memory_store.superseded_entries()
-        if history:
-            with st.expander(f"Lịch sử quy ước đã thay thế ({len(history)})", expanded=False):
-                for item in history:
-                    st.caption(f"- **{item['topic']}** v{item['version']} [{item['status']}]: {item['rule']}")
+            content = st.text_area("Quy ước hiện hành", placeholder="Ví dụ: API dùng REST và trả lỗi theo RFC 9457.")
+            source = st.text_input("Nguồn xác nhận", value="user confirmed")
+            submitted = st.form_submit_button("Lưu / cập nhật quy ước", type="primary")
+        if submitted:
+            result = memory_store.remember(topic, content, source, replaces_topics=replaced_topics)
+            if result.get("ok"):
+                st.success(f"Đã cập nhật trong cùng file memory/memory.json; {len(result['superseded'])} phiên bản cũ được giữ trong lịch sử và đánh dấu superseded. Quy ước hiện hành được nạp vào request tiếp theo.")
+                st.rerun()
+            else:
+                st.error(result.get("error", "Lỗi không xác định"))
+        left, right = st.columns(2)
+        left.button("Tạo session mới", icon=":material/add_comment:", on_click=new_conversation, help="Giữ kho memory; xóa lịch sử chat của session hiện tại.")
+        right.caption(f"Session hiện tại: `{st.session_state.conversation_id[:8]}`")
+        st.markdown("**Memory sẽ được inject vào system context của session mới**")
+        st.code(memory_store.render_injected_memory(), language="markdown", wrap_lines=True)
+        entries = memory_store.history_entries()
+        with st.expander(f"Lịch sử memory ({len(entries)} phiên bản)"):
+            if entries:
+                st.dataframe([
+                    {"chủ đề": e.get("topic", ""), "trạng thái": e.get("status", ""), "quy ước": e.get("content", ""), "nguồn": e.get("source", ""), "cập nhật": e.get("updated_at", ""), "thay thế": ", ".join(e.get("supersedes", []))}
+                    for e in entries
+                ], hide_index=True, use_container_width=True)
+            else:
+                st.caption("Chưa lưu quy ước. Có thể thêm tại đây để kiểm tra vòng đời memory mà không gọi API.")
+
+
+# ---------------------------------------------------------------- trace rendering
+
+
+def usage_text(usage: dict | None) -> str:
+    return f" | {usage.get('input_tokens')} in / {usage.get('output_tokens')} out tokens" if usage else ""
+
+
+
+# ---------------------------------------------------------------- trace rendering
+
+
+def usage_text(usage: dict | None) -> str:
+    return f" | {usage.get('input_tokens')} in / {usage.get('output_tokens')} out tokens" if usage else ""
 
 
 def render_events(events: list[dict]) -> None:
-    finished = {e["tool_call_id"]: e for e in events if e.get("event") == "tool_finished"}
+    """Các bước thực hiện của một lượt: model calls và tool calls theo đúng thứ tự event."""
+    finished = {e["tool_call_id"]: e for e in events if e["type"] == "tool_finished"}
+    shown = False
     for event in events:
-        kind = event.get("event")
-        if kind == "user_submitted":
-            st.caption(f":material/person: {event.get('user_message', '')[:120]}")
-        elif kind == "model_request":
-            calls = event.get("model_call_index", "")
-            msgs = len(event.get("messages", []))
-            st.caption(f":material/send: Model request #{calls} ({msgs} messages)")
+        kind = event["type"]
+        if kind == "model_request":
+            shown = True
+            st.markdown(
+                f":material/smart_toy: **Model call #{event['model_call_index']}** | "
+                f"{event['message_count']} messages | {event['tool_count']} tools"
+            )
         elif kind == "model_response":
-            tc = len(event.get("tool_calls", []))
-            stop = event.get("finish_reason", "")
-            st.caption(f":material/reply: Model response (tool_calls={tc}, finish_reason={stop})")
+            requested = event.get("tool_calls_requested") or []
+            if requested:
+                names = ", ".join(f"`{c['name']}`" for c in requested)
+                st.caption(f"↳ yêu cầu {len(requested)} tool call: {names}{usage_text(event.get('usage'))}")
+            else:
+                st.caption(f"↳ trả câu trả lời, không yêu cầu tool{usage_text(event.get('usage'))}")
         elif kind == "tool_started":
+            shown = True
             render_tool_step(event, finished.get(event["tool_call_id"]))
         elif kind == "context_compacted":
+            shown = True
             st.info(
                 f":material/compress: **Context đã compact trước lượt này**: "
                 f"{event.get('before_chars', 0):,} → {event.get('after_chars', 0):,} ký tự | "
-                f"lý do: {event.get('reason', 'compact thủ công')}",
+                f"lý do: {event.get('reason', 'compact')}",
                 icon=":material/compress:",
             )
-        elif kind == "run_completed":
-            st.caption(f":material/check_circle: Hoàn tất ({event.get('answer_chars', 0)} ký tự câu trả lời)")
         elif kind == "run_failed":
             st.error(f"Lượt thất bại: {event.get('error')}", icon=":material/error:")
+    if not shown:
+        st.caption("Chưa có bước nào.")
 
 
 def render_tool_step(started: dict, done: dict | None) -> None:
     with st.container(border=True):
-        st.markdown(f":material/build: **`{started.get('tool_name')}`** `{started.get('tool_call_id', '')[:8]}`")
-        render_arguments(started.get("arguments", {}))
-        if done:
-            render_result(done.get("result"))
+        header = st.container(horizontal=True, vertical_alignment="center")
+        header.markdown(f":material/build: **{started['tool_name']}**")
+        if done is None:
+            header.badge("đang chạy", color="orange")
         else:
-            st.caption("Chưa có kết quả.")
+            result = done.get("result")
+            failed = done.get("status") in ("error", "exception") or (isinstance(result, dict) and result.get("ok") is False)
+            header.badge("lỗi" if failed else "ok", color="red" if failed else "green")
+            if done.get("elapsed_ms") is not None:
+                header.caption(f"{done['elapsed_ms']} ms")
+        st.caption(f"tool_call_id `{started['tool_call_id']}`")
+        render_arguments(started.get("arguments", {}))
+        if done is None:
+            return
+        if done.get("status") == "exception":
+            st.error(f"Exception khi chạy tool: {done.get('error')}")
+        elif failed:
+            st.caption("Tool trả lỗi; lỗi được gửi lại model dưới dạng tool result.")
+        render_result(done.get("result"))
 
 
 def render_arguments(arguments: dict) -> None:
-    if not arguments:
-        st.caption("Không có tham số.")
-        return
-    for key, value in arguments.items():
-        st.caption(f"Tham số `{key}`:")
-        text = str(value)
-        if "\n" in text or len(text) > 80:
-            st.code(text, language=None, wrap_lines=True)
-        else:
-            st.text(text)
+    if set(arguments) == {"command"}:
+        st.code(arguments["command"], language="bash", wrap_lines=True)
+    else:
+        st.json(arguments, expanded=True)
+
+
+TEXT_RESULT_FIELDS = ("content", "stdout", "stderr")
 
 
 def render_result(result) -> None:
-    if not isinstance(result, dict):
-        st.caption("Kết quả:")
-        st.text(str(result))
-        return
-    status = result.get("status")
-    status_icon = ":material/check:" if status == "success" else ":material/error:"
-    st.caption(f"Kết quả ({status_icon} `{status}`):")
-    for key, value in result.items():
-        if key in ("status", "path") and value is not None:
-            continue
-        text = str(value)
-        if not text:
-            continue
-        st.caption(f"`{key}`:")
-        if "\n" in text or len(text) > 80:
-            st.code(text, language=None, wrap_lines=True)
-        else:
-            st.text(text)
+    """Result có cấu trúc bằng st.json; trường văn bản (content/stdout/stderr) bằng st.code, hiện đầy đủ."""
+    st.caption("Result")
+    if isinstance(result, dict):
+        st.json({k: v for k, v in result.items() if k not in TEXT_RESULT_FIELDS}, expanded=True)
+        for key in TEXT_RESULT_FIELDS:
+            value = result.get(key)
+            if isinstance(value, str) and value:
+                st.caption(key)
+                st.code(value, language=None, wrap_lines=True)
+    elif isinstance(result, list):
+        st.json(result, expanded=True)
+    elif result is not None:
+        st.code(str(result), language=None, wrap_lines=True)
+
+
+
+
+def compact_event(event: dict) -> dict:
+    """Bản gọn của event để gắn vào lượt chat trên UI (snapshot đầy đủ nằm ở observer/trace)."""
+    item = {k: v for k, v in event.items() if k != "snapshot"}
+    if event["type"] == "model_request":
+        item["message_count"] = event["snapshot"]["message_count"]
+        item["tool_count"] = len(event["snapshot"]["tools"])
+    return item
+
+
+def steps_label(events: list[dict]) -> str:
+    model_calls = sum(1 for e in events if e["type"] == "model_request")
+    tool_calls = sum(1 for e in events if e["type"] == "tool_started")
+    return f"Các bước thực hiện ({model_calls} model call, {tool_calls} tool call)"
 
 
 def render_history() -> None:
@@ -253,15 +301,41 @@ def render_history() -> None:
         with st.chat_message("user"):
             st.markdown(turn["user"])
         with st.chat_message("assistant"):
-            if turn["events"]:
-                with st.expander(f"Chi tiết lượt {turn['chat_turn']} ({len(turn['events'])} events)", expanded=False):
-                    render_events(turn["events"])
+            if turn["answer"]:
+                st.markdown(turn["answer"])
             if turn["error"]:
                 st.error(turn["error"], icon=":material/error:")
-            elif turn["answer"]:
-                st.markdown(turn["answer"])
-            else:
-                st.caption("Chưa có phản hồi hoàn tất.")
+            with st.expander(steps_label(turn["events"]), icon=":material/route:"):
+                render_events(turn["events"])
+
+
+# ---------------------------------------------------------------- state & context panel
+
+
+def message_rows(messages: list[dict]) -> list[dict]:
+    rows = []
+    for index, message in enumerate(messages):
+        text = message_text(message.get("content", ""))
+        calls = message.get("tool_calls") or []
+        if calls:
+            kind = "tool_calls"
+            tool = ", ".join(f"{c['name']} ({c['id']})" for c in calls)
+        elif message.get("role") == "tool":
+            kind = "tool_result"
+            tool = f"{message.get('name')} ({message.get('tool_call_id')})"
+        else:
+            kind = "text"
+            tool = ""
+        rows.append(
+            {
+                "index": index,
+                "role": message.get("role"),
+                "loại": kind,
+                "preview": text[:120] + ("…" if len(text) > 120 else ""),
+                "tool / ID": tool,
+            }
+        )
+    return rows
 
 
 def render_counters(observer: Observer) -> None:
@@ -300,70 +374,118 @@ def render_capabilities(observer: Observer, caps: dict, tool_schemas: list[dict]
         for skill in caps["skills"]:
             st.markdown(f"**{skill['name']}** | `{skill['location']}`  \n{skill['description']}")
         for diag in caps["skill_diagnostics"]:
-            st.caption(f":material/warning: `{diag['name']}`: {diag['message']}")
+            st.warning(diag)
+    inventory = observer.inventory()
+    with st.expander(f"Skill content đã vào history ({len(inventory['skills'])})", icon=":material/task_alt:"):
+        st.caption("Nội dung đã vào history: ghi nhận từ tool result read_file SKILL.md thành công. Không khẳng định model đã hiểu hay làm theo.")
+        if not inventory["skills"]:
+            st.caption("Chưa có skill nào được đọc trong conversation này.")
+        for item in inventory["skills"]:
+            st.markdown(
+                f"**{item['skill']}** | `{item['path']}` | message #{item['message_index']} | tool_call_id `{item['tool_call_id']}` | "
+                f"{item['chars']} ký tự | request đầu tiên chứa nội dung: {item['first_request'] or 'chưa gửi model'}"
+            )
+    with st.expander(f"Tài nguyên đã đọc ({len(inventory['resources'])})", icon=":material/description:"):
+        st.caption("Đọc thành công bằng read_file. Chạy script bằng bash không tính là đã đọc source.")
+        if not inventory["resources"]:
+            st.caption("Chưa đọc tài nguyên nào.")
+        for item in inventory["resources"]:
+            st.markdown(f"`{item['path']}` | message #{item['message_index']} | tool_call_id `{item['tool_call_id']}`")
 
 
 def render_messages(observer: Observer, interactive: bool) -> None:
-    with st.expander(f"Lịch sử hội thoại ({len(observer.messages)})", icon=":material/chat:", expanded=True):
+    with st.expander(f"Message history hiện tại ({len(observer.messages)})", icon=":material/forum:"):
         if not observer.messages:
             st.caption("Chưa có message.")
             return
+        st.dataframe(message_rows(observer.messages), hide_index=True, width="stretch", height="content")
         if interactive:
-            idx = st.selectbox(
-                "Message",
-                range(len(observer.messages)),
+            index = st.selectbox(
+                "Xem đầy đủ message",
+                options=list(range(len(observer.messages))),
                 index=len(observer.messages) - 1,
-                format_func=lambda i: f"#{i} {observer.messages[i].get('role')} ({len(message_text(observer.messages[i]))} ký tự)",
                 key="message_choice",
             )
+            st.json(observer.messages[index], expanded=True)
         else:
-            idx = len(observer.messages) - 1
-        msg = observer.messages[idx]
-        st.caption(f"Role: `{msg.get('role')}` | name: `{msg.get('name')}` | tool_call_id: `{msg.get('tool_call_id')}`")
-        if msg.get("content"):
-            st.code(message_text(msg), language=None, wrap_lines=True)
-        if msg.get("tool_calls"):
-            st.caption("Tool calls:")
-            st.json(msg["tool_calls"], expanded=True)
+            st.caption("Message mới nhất:")
+            st.json(observer.messages[-1], expanded=False)
+
+
+def snapshot_label(snapshot: dict) -> str:
+    time_part = (snapshot.get("captured_at") or "")[11:19]
+    return f"Lượt {snapshot['chat_turn']}, model call #{snapshot['model_call_index']} ({time_part})"
+
+
+def snapshot_summary(snapshot: dict) -> str:
+    usage = snapshot.get("usage")
+    tokens = f" | {usage.get('input_tokens')} in / {usage.get('output_tokens')} out tokens" if usage else " | chưa có usage"
+    return (
+        f"model `{snapshot.get('model_name') or '-'}` | {snapshot['message_count']} messages | "
+        f"{len(snapshot['tools'])} tools | {snapshot['system_prompt_chars'] + snapshot['message_chars']} ký tự{tokens}"
+    )
 
 
 def render_context(observer: Observer, interactive: bool) -> None:
-    st.subheader("Context & Snapshot")
-    st.caption(CONTEXT_NOTE)
+    mode = st.session_state.get("agent_mode", "native")
+    st.markdown("##### Context gửi model (lớp LangChain)", help=CONTEXT_NOTE)
     snapshots = observer.snapshots
     if not snapshots:
-        st.caption("Chưa có model request nào trong session này.")
-        render_observability_metrics(observer)
+        st.info("Chưa có request nào được gửi. Dưới đây là Context cấu hình, chưa phải request đã gửi.", icon=":material/info:")
+        tools = [tool_schema(t) for t in selected_tools(mode)]
+        with st.expander("Context cấu hình: system prompt", icon=":material/article:"):
+            st.code(system_prompt(mode), language="markdown", wrap_lines=True)
+        with st.expander(f"Context cấu hình: tools schema ({len(tools)})", icon=":material/data_object:"):
+            st.json(tools, expanded=False)
+        pending = [serialize_message(m) for m in st.session_state.model_history]
+        if pending:
+            with st.expander(f"Context cấu hình: messages đang chờ ({len(pending)})", icon=":material/forum:"):
+                st.json(pending, expanded=False)
         return
+
     if interactive:
-        choice = st.selectbox(
-            "Chọn model request",
-            range(len(snapshots)),
-            index=len(snapshots) - 1,
-            format_func=lambda i: (
-                f"#{i + 1} lúc {snapshots[i]['timestamp'][11:19]} — lượt {snapshots[i]['chat_turn']} "
-                f"({len(snapshots[i]['messages'])} msgs, {len(snapshots[i]['tools'])} tools)"
-            ),
-            key="snapshot_choice",
+        row = st.container(horizontal=True, vertical_alignment="bottom")
+        with row:
+            choice = st.selectbox(
+                "Snapshot request",
+                options=list(range(len(snapshots))),
+                index=len(snapshots) - 1,
+                format_func=lambda i: snapshot_label(snapshots[i]),
+                key="snapshot_choice",
+            )
+        snapshot = snapshots[choice]
+        row.download_button(
+            "Snapshot JSON",
+            icon=":material/download:",
+            data=json.dumps(snapshot, ensure_ascii=False, indent=2),
+            file_name=f"snapshot_turn{snapshot['chat_turn']:02d}_call{snapshot['model_call_index']:02d}.json",
+            mime="application/json",
+            on_click="ignore",
+        )
+        row.download_button(
+            "Conversation JSON",
+            icon=":material/download:",
+            data=json.dumps(observer.export(), ensure_ascii=False, indent=2),
+            file_name=f"conversation_{observer.conversation_id[:8]}.json",
+            mime="application/json",
+            on_click="ignore",
         )
     else:
-        choice = len(snapshots) - 1
-    snap = snapshots[choice]
-    with st.expander(f"System prompt ({len(snap['system_prompt'])} ký tự)", icon=":material/description:"):
-        st.code(snap["system_prompt"], language=None, wrap_lines=True)
-    with st.expander(f"Messages gửi model ({len(snap['messages'])})", icon=":material/chat:"):
-        for index, m in enumerate(snap["messages"]):
-            st.caption(f"#{index} role: `{m.get('role')}`")
-            text = message_text(m)
-            if text:
-                st.code(text, language=None, wrap_lines=True)
-            if m.get("tool_calls"):
-                st.caption("tool_calls:")
-                st.json(m["tool_calls"], expanded=True)
-    with st.expander(f"Tool schemas khai báo ({len(snap['tools'])})", icon=":material/handyman:"):
-        for schema in snap["tools"]:
-            st.markdown(f"- `{schema.get('name')}`: {schema.get('description', '')}")
-    meta = {"run_id": snap["run_id"], "model_call_index": snap["model_call_index"], "timestamp": snap["timestamp"], "usage": snap["usage"]}
+        snapshot = snapshots[-1]
+        st.caption(f"Đang theo dõi snapshot mới nhất: {snapshot_label(snapshot)}")
+    st.caption(snapshot_summary(snapshot))
+
+    meta = {k: v for k, v in snapshot.items() if k not in ("system_prompt", "messages", "tools")}
+    with st.expander(f"Snapshot: system prompt ({snapshot['system_prompt_chars']} ký tự)", icon=":material/article:"):
+        st.code(snapshot["system_prompt"], language="markdown", wrap_lines=True)
+    with st.expander(f"Snapshot: messages ({snapshot['message_count']})", icon=":material/forum:"):
+        st.dataframe(message_rows(snapshot["messages"]), hide_index=True, width="stretch", height="content")
+        st.caption("Nội dung đầy đủ (không rút gọn):")
+        st.json(snapshot["messages"], expanded=False)
+    with st.expander(f"Snapshot: tools schema ({len(snapshot['tools'])})", icon=":material/data_object:"):
+        if not snapshot["tools"]:
+            st.caption("Request này không có tool.")
+        st.json(snapshot["tools"], expanded=False)
     with st.expander("Snapshot: metadata", icon=":material/info:"):
         st.json(meta, expanded=True)
         st.caption("usage chỉ có khi provider thực sự trả về sau response. Không có token estimate.")
@@ -371,25 +493,22 @@ def render_context(observer: Observer, interactive: bool) -> None:
 
 
 def render_event_log(observer: Observer) -> None:
-    with st.expander(f"Event log ({len(observer.events)} events)", icon=":material/list:"):
-        if not observer.events:
+    with st.expander(f"Event log ({len(observer.events)})", icon=":material/list:"):
+        rows = [
+            {
+                "lượt": e["chat_turn"],
+                "seq": e["sequence"],
+                "event": e["type"],
+                "tool": e.get("tool_name", ""),
+                "tool_call_id": e.get("tool_call_id", ""),
+                "time": e["timestamp"][11:23],
+            }
+            for e in observer.events
+        ]
+        if rows:
+            st.dataframe(rows, hide_index=True, width="stretch", height="content")
+        else:
             st.caption("Chưa có event.")
-            return
-        rows = []
-        for e in observer.events:
-            rows.append({
-                "seq": e.get("event_seq"),
-                "event": e.get("event"),
-                "chat_turn": e.get("chat_turn"),
-                "time": e.get("timestamp", "")[11:19],
-                "detail": (
-                    e.get("user_message", "")
-                    or e.get("tool_name", "")
-                    or e.get("finish_reason", "")
-                    or ("lỗi" if e.get("error") else "")
-                )[:40],
-            })
-        st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def render_state_panel(interactive: bool) -> None:
@@ -401,6 +520,7 @@ def render_state_panel(interactive: bool) -> None:
     render_capabilities(observer, capabilities(mode), [tool_schema(t) for t in selected_tools(mode)])
     render_messages(observer, interactive)
     render_event_log(observer)
+
 
 
 # ---------------------------------------------------------------- run one turn
@@ -627,33 +747,32 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
         with state_box.container():
             render_state_panel(interactive=False)
 
+    writer = TraceWriter(paths.TRACES_DIR, PROJECT_NAME, observer.conversation_id, run_id, observer.chat_turn)
+
     def emit(event_type: str, data: dict | None = None) -> None:
         event = observer.record(event_type, data)
-        turn["events"].append(event)
+        writer.write(event)
+        turn["events"].append(compact_event(event))
         refresh()
 
-    emit("user_submitted", {"user_message": text})
+    caps = capabilities(mode)
+    emit("user_submitted", {"text": text, "tools": caps["tools"], "skills": caps["skills"]})
+    observer.sync_messages(working)
     if compacted_before_turn is not None:
         emit("context_compacted", compacted_before_turn)
-
-    trace_writer = None
-    try:
-        trace_writer = TraceWriter(paths.TRACES_DIR, observer.conversation_id, run_id, observer.chat_turn)
-        observer.attach_trace(trace_writer)
-    except Exception as exc:
-        log_exception(paths.TRACES_DIR, exc)
-
-    model = build_model(settings)
-    agent = build_agent(model, mode=mode)
-    inputs = {"messages": working}
 
     with st.chat_message("assistant"):
         status = st.status("Agent đang xử lý…", expanded=True)
         answer_box = st.empty()
 
     try:
-        for chunk in agent.stream(inputs, stream_mode=["updates", "custom"], config={"recursion_limit": RECURSION_LIMIT}):
-            mode_chunk, chunk = chunk
+        agent = build_agent(build_model(settings), mode=mode)
+        stream = agent.stream(
+            {"messages": working},
+            config={"recursion_limit": RECURSION_LIMIT},
+            stream_mode=["updates", "custom"],
+        )
+        for mode_chunk, chunk in stream:
             if mode_chunk == "custom" and isinstance(chunk, dict) and chunk.get("observer"):
                 emit(chunk["event"], chunk["data"])
             elif mode_chunk == "updates" and isinstance(chunk, dict):
@@ -676,8 +795,6 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
         answer_box.error(turn["error"])
     finally:
         refresh()
-        if trace_writer:
-            trace_writer.close()
 
     ss.pop("snapshot_choice", None)
     ss.pop("message_choice", None)
