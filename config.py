@@ -25,6 +25,7 @@ class Settings:
     api_key: str
     model_name: str
     base_url: str | None
+    max_model_output_tokens: int = 1024
 
 
 def load_settings() -> tuple[Settings | None, list[str]]:
@@ -37,4 +38,10 @@ def load_settings() -> tuple[Settings | None, list[str]]:
     missing = [name for name, value in (("OPENAI_API_KEY", api_key), ("MODEL_NAME", model_name)) if not value]
     if missing:
         return None, missing
-    return Settings(api_key=api_key, model_name=model_name, base_url=base_url), []
+    max_output_tokens = int(os.getenv("MAX_MODEL_OUTPUT_TOKENS", "1024"))
+    return Settings(
+        api_key=api_key,
+        model_name=model_name,
+        base_url=base_url,
+        max_model_output_tokens=max_output_tokens,
+    ), []

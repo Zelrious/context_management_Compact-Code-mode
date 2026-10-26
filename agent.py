@@ -21,7 +21,11 @@ def selected_tools(mode: str = "native"):
 
 
 def build_model(settings: Settings) -> ChatOpenAI:
-    kwargs = {"model": settings.model_name, "api_key": settings.api_key}
+    kwargs = {
+        "model": settings.model_name,
+        "api_key": settings.api_key,
+        "max_tokens": settings.max_model_output_tokens,
+    }
     if settings.base_url:
         kwargs["base_url"] = settings.base_url
     return ChatOpenAI(**kwargs)

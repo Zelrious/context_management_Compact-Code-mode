@@ -29,13 +29,13 @@ Challenge B phát triển tiếp trên nền đó. **B1 Compact** nén lịch s�
 ## Kịch bản B1 — Compact
 
 1. Chọn **Native tools + Compact**.
-2. Trong **B1 · Compact session dài**, bấm **Nạp session dài mẫu**. Demo tạo lịch sử giả có lỗi refresh token, các lần thử, file liên quan và tool output lớn; không gọi API.
+2. Trong **B1 · Compact session dài**, bấm **Nạp session dài mẫu**. Demo tạo lịch sử phân tích `data/workload.csv` với ngưỡng 8 giờ, một lần chạy sai đường dẫn, yêu cầu không sửa CSV và tool output lớn; không gọi API. Đây là luồng CSV của agent gốc để nhìn thấy rõ các ràng buộc còn lại sau compact.
 3. Quan sát số ký tự ở **Active message context**, sau đó bấm **Compact ngay**.
 4. Mở **Checkpoint đang được dùng**. Kiểm tra mục tiêu, yêu cầu tương thích, lỗi, lần thử, file và bước kế tiếp.
 5. So sánh số ký tự trước/sau. Phần cũ được giữ trong archive cục bộ; chỉ checkpoint và các lượt gần đây còn trong active messages.
 6. Để xem tự động compact, giảm ngưỡng xuống thấp hơn kích thước context rồi gửi lượt chat tiếp theo. Việc gọi model cần API key hợp lệ.
 
-Checkpoint có schema gồm `goal`, `user_requirements`, `current_state`, `unresolved_issues`, `findings`, `failed_attempts`, `relevant_files`, `next_action` và metadata archive. Trigger là ngưỡng ký tự ước tính hoặc lượng tool output; đây không phải phép đo token chính xác. Nếu provider trả usage, snapshot hiển thị input/output token thực tế.
+Checkpoint có schema gồm `goal`, `user_requirements`, `current_state`, `unresolved_issues`, `findings`, `failed_attempts`, `relevant_files`, `next_action` và metadata archive. Compact giữ tối đa hai lượt gần nhất; tool result trên 2.000 ký tự được thay bằng bản tóm tắt trong active context, còn nội dung gốc được giữ trong archive cục bộ của session. Nếu session ngắn hơn hai lượt, các message vẫn được giữ; checkpoint không thay thế yêu cầu mới nhất. Trigger là ngưỡng ký tự ước tính hoặc lượng tool output; đây không phải phép đo token chính xác. Nếu provider trả usage, snapshot hiển thị input/output token thực tế.
 
 ## Kịch bản B2 — Code Mode (cộng điểm)
 
