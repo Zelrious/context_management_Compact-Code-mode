@@ -174,7 +174,7 @@ def render_memory_lab() -> None:
                 st.dataframe([
                     {"chủ đề": e.get("topic", ""), "trạng thái": e.get("status", ""), "quy ước": e.get("content", ""), "nguồn": e.get("source", ""), "cập nhật": e.get("updated_at", ""), "thay thế": ", ".join(e.get("supersedes", []))}
                     for e in entries
-                ], hide_index=True, use_container_width=True)
+                ], hide_index=True, width="stretch")
             else:
                 st.caption("Chưa lưu quy ước. Có thể thêm tại đây để kiểm tra vòng đời memory mà không gọi API.")
 
@@ -398,7 +398,7 @@ def render_messages(observer: Observer, interactive: bool) -> None:
         if not observer.messages:
             st.caption("Chưa có message.")
             return
-        st.dataframe(message_rows(observer.messages), hide_index=True, width="stretch", height="content")
+        st.dataframe(message_rows(observer.messages), hide_index=True, width="stretch")
         if interactive:
             index = st.selectbox(
                 "Xem đầy đủ message",
@@ -479,7 +479,7 @@ def render_context(observer: Observer, interactive: bool) -> None:
     with st.expander(f"Snapshot: system prompt ({snapshot['system_prompt_chars']} ký tự)", icon=":material/article:"):
         st.code(snapshot["system_prompt"], language="markdown", wrap_lines=True)
     with st.expander(f"Snapshot: messages ({snapshot['message_count']})", icon=":material/forum:"):
-        st.dataframe(message_rows(snapshot["messages"]), hide_index=True, width="stretch", height="content")
+        st.dataframe(message_rows(snapshot["messages"]), hide_index=True, width="stretch")
         st.caption("Nội dung đầy đủ (không rút gọn):")
         st.json(snapshot["messages"], expanded=False)
     with st.expander(f"Snapshot: tools schema ({len(snapshot['tools'])})", icon=":material/data_object:"):
@@ -506,7 +506,7 @@ def render_event_log(observer: Observer) -> None:
             for e in observer.events
         ]
         if rows:
-            st.dataframe(rows, hide_index=True, width="stretch", height="content")
+            st.dataframe(rows, hide_index=True, width="stretch")
         else:
             st.caption("Chưa có event.")
 
