@@ -10,9 +10,32 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 import paths
 import memory_store
-from agent import TOOLS, build_agent, build_model, capabilities, selected_tools, system_prompt
-from compaction import DEFAULT_TRIGGER_CHARS, compact_messages, message_chars, should_compact
-from config import APP_TITLE, CAPABILITY_TEXT, COMPACT_TRIGGER_CHARS, PROJECT_NAME, RECURSION_LIMIT, load_settings
+from agent import (
+    TOOLS,
+    build_agent,
+    build_model,
+    capabilities,
+    compact_messages,
+    execute_code,
+    message_chars,
+    selected_tools,
+    should_compact,
+    system_prompt,
+    DEFAULT_TRIGGER_CHARS,
+)
+from config import (
+    APP_TITLE,
+    AUTO_COMPACT_ENABLED,
+    CAPABILITY_TEXT,
+    CODE_MODE_MAX_CODE_CHARS,
+    CODE_MODE_MAX_OUTPUT_CHARS,
+    COMPACT_TRIGGER_CHARS,
+    COMPACT_TRIGGER_MESSAGES,
+    DEFAULT_MODE,
+    PROJECT_NAME,
+    RECURSION_LIMIT,
+    load_settings,
+)
 from observer import (
     STATUS_DONE,
     STATUS_ERROR,
@@ -25,14 +48,11 @@ from observer import (
 )
 from reset_workspace import WorkspaceError, ensure_workspace
 from trace import TraceWriter, log_exception
-from tools.code_mode import execute_code
 
 PANEL_HEIGHT = 600  # chiều cao dự phòng (px); CSS bên dưới kéo hai cột theo chiều cao cửa sổ
-# Streamlit không có tùy chọn chiều cao theo viewport, nên dùng một khối CSS nhỏ:
-# khóa cuộn của trang, hai cột (key chat_panel / state_panel) cao bằng phần còn lại của cửa sổ.
 PAGE_CSS = """
 <style>
-[data-testid="stAppScrollToBottomContainer"] { overflow: hidden; }
+[data-testid="stAppScrollToBottomContainer"] { overflow: auto !important; }
 [data-testid="stMainBlockContainer"] { padding-top: 3rem; padding-bottom: 0; }
 [data-testid="stBottomBlockContainer"] { padding-top: 0.5rem; padding-bottom: 1rem; }
 [data-testid="stLayoutWrapper"]:has(> .st-key-chat_panel),
@@ -105,6 +125,7 @@ def new_conversation() -> None:
     ss.compaction_checkpoint = None
     ss.compaction_count = 0
     ss.compaction_stats = None
+    ss.code_mode_last_result = None
     ss.pop("snapshot_choice", None)
     ss.pop("message_choice", None)
 
@@ -112,6 +133,10 @@ def new_conversation() -> None:
 def init_state() -> None:
     if "observer" not in st.session_state:
         new_conversation()
+    st.session_state.setdefault("compact_trigger_chars", COMPACT_TRIGGER_CHARS)
+    st.session_state.setdefault("compact_trigger_messages", COMPACT_TRIGGER_MESSAGES)
+    st.session_state.setdefault("auto_compact_enabled", AUTO_COMPACT_ENABLED)
+    st.session_state.setdefault("code_mode_last_result", None)
 
 
 def render_memory_lab() -> None:
@@ -137,7 +162,7 @@ def render_memory_lab() -> None:
                 st.success(f"Đã cập nhật trong cùng file memory/memory.json; {len(result['superseded'])} phiên bản cũ được giữ trong lịch sử và đánh dấu superseded. Quy ước hiện hành được nạp vào request tiếp theo.")
                 st.rerun()
             else:
-                st.error(result["error"])
+                st.error(result.get("error", "Lỗi không xác định"))
         left, right = st.columns(2)
         left.button("Tạo session mới", icon=":material/add_comment:", on_click=new_conversation, help="Giữ kho memory; xóa lịch sử chat của session hiện tại.")
         right.caption(f"Session hiện tại: `{st.session_state.conversation_id[:8]}`")
@@ -147,7 +172,7 @@ def render_memory_lab() -> None:
         with st.expander(f"Lịch sử memory ({len(entries)} phiên bản)"):
             if entries:
                 st.dataframe([
-                    {"chủ đề": e["topic"], "trạng thái": e["status"], "quy ước": e["content"], "nguồn": e["source"], "cập nhật": e["updated_at"], "thay thế": ", ".join(e["supersedes"])}
+                    {"chủ đề": e.get("topic", ""), "trạng thái": e.get("status", ""), "quy ước": e.get("content", ""), "nguồn": e.get("source", ""), "cập nhật": e.get("updated_at", ""), "thay thế": ", ".join(e.get("supersedes", []))}
                     for e in entries
                 ], hide_index=True, width="stretch")
             else:
@@ -159,6 +184,28 @@ def render_memory_lab() -> None:
 
 def usage_text(usage: dict | None) -> str:
     return f" | {usage.get('input_tokens')} in / {usage.get('output_tokens')} out tokens" if usage else ""
+
+
+
+# ---------------------------------------------------------------- trace rendering
+
+
+def usage_text(usage: dict | None) -> str:
+    return f" | {usage.get('input_tokens')} in / {usage.get('output_tokens')} out tokens" if usage else ""
+
+
+def format_error_message(err: str | None) -> str:
+    if not err:
+        return ""
+    text = str(err).strip()
+    first_line = text.splitlines()[0] if text else ""
+    truncated = first_line if len(first_line) <= 300 else first_line[:300] + "…"
+    # Thay { } để tránh Streamlit / React xử lý như format string → trắng màn hình
+    sanitized = truncated.replace("{", "(").replace("}", ")")
+    # Loại ký tự Markdown có thể gây crash khi render
+    for ch in ("`", "*", "_", "<", ">"):
+        sanitized = sanitized.replace(ch, " ")
+    return sanitized
 
 
 def render_events(events: list[dict]) -> None:
@@ -183,8 +230,16 @@ def render_events(events: list[dict]) -> None:
         elif kind == "tool_started":
             shown = True
             render_tool_step(event, finished.get(event["tool_call_id"]))
+        elif kind == "context_compacted":
+            shown = True
+            st.info(
+                f":material/compress: **Context đã compact trước lượt này**: "
+                f"{event.get('before_chars', 0):,} → {event.get('after_chars', 0):,} ký tự | "
+                f"lý do: {event.get('reason', 'compact')}",
+                icon=":material/compress:",
+            )
         elif kind == "run_failed":
-            st.error(f"Lượt thất bại: {event.get('error')}", icon=":material/error:")
+            st.error(f"Lượt thất bại: {format_error_message(event.get('error'))}", icon=":material/error:")
     if not shown:
         st.caption("Chưa có bước nào.")
 
@@ -238,6 +293,8 @@ def render_result(result) -> None:
         st.code(str(result), language=None, wrap_lines=True)
 
 
+
+
 def compact_event(event: dict) -> dict:
     """Bản gọn của event để gắn vào lượt chat trên UI (snapshot đầy đủ nằm ở observer/trace)."""
     item = {k: v for k, v in event.items() if k != "snapshot"}
@@ -261,7 +318,10 @@ def render_history() -> None:
             if turn["answer"]:
                 st.markdown(turn["answer"])
             if turn["error"]:
-                st.error(turn["error"], icon=":material/error:")
+                st.error(format_error_message(turn["error"]), icon=":material/error:")
+                if "\n" in str(turn["error"]) or len(str(turn["error"])) > 300:
+                    with st.expander("Chi tiết lỗi runtime"):
+                        st.code(str(turn["error"]), wrap_lines=True)
             with st.expander(steps_label(turn["events"]), icon=":material/route:"):
                 render_events(turn["events"])
 
@@ -312,7 +372,7 @@ def render_counters(observer: Observer) -> None:
         for col, key in zip(st.columns(2, gap="small"), pair):
             col.metric(key, counters[key], help=COUNTER_HELP[key], border=True)
     if observer.turn_failed:
-        st.error(f"Lượt {observer.chat_turn} lỗi: {observer.error}", icon=":material/error:")
+        st.error(f"Lượt {observer.chat_turn} lỗi: {format_error_message(observer.error)}", icon=":material/error:")
     if observer.history_rolled_back:
         st.warning("Model history đã rollback về trước lượt lỗi. Bảng message giữ trạng thái quan sát cuối của lượt lỗi.")
 
@@ -355,7 +415,7 @@ def render_messages(observer: Observer, interactive: bool) -> None:
         if not observer.messages:
             st.caption("Chưa có message.")
             return
-        st.dataframe(message_rows(observer.messages), hide_index=True, width="stretch", height="content")
+        st.dataframe(message_rows(observer.messages), hide_index=True, width="stretch")
         if interactive:
             index = st.selectbox(
                 "Xem đầy đủ message",
@@ -436,7 +496,7 @@ def render_context(observer: Observer, interactive: bool) -> None:
     with st.expander(f"Snapshot: system prompt ({snapshot['system_prompt_chars']} ký tự)", icon=":material/article:"):
         st.code(snapshot["system_prompt"], language="markdown", wrap_lines=True)
     with st.expander(f"Snapshot: messages ({snapshot['message_count']})", icon=":material/forum:"):
-        st.dataframe(message_rows(snapshot["messages"]), hide_index=True, width="stretch", height="content")
+        st.dataframe(message_rows(snapshot["messages"]), hide_index=True, width="stretch")
         st.caption("Nội dung đầy đủ (không rút gọn):")
         st.json(snapshot["messages"], expanded=False)
     with st.expander(f"Snapshot: tools schema ({len(snapshot['tools'])})", icon=":material/data_object:"):
@@ -463,7 +523,7 @@ def render_event_log(observer: Observer) -> None:
             for e in observer.events
         ]
         if rows:
-            st.dataframe(rows, hide_index=True, width="stretch", height="content")
+            st.dataframe(rows, hide_index=True, width="stretch")
         else:
             st.caption("Chưa có event.")
 
@@ -477,6 +537,7 @@ def render_state_panel(interactive: bool) -> None:
     render_capabilities(observer, capabilities(mode), [tool_schema(t) for t in selected_tools(mode)])
     render_messages(observer, interactive)
     render_event_log(observer)
+
 
 
 # ---------------------------------------------------------------- run one turn
@@ -502,11 +563,17 @@ result = {"files_scanned": len(files), "total_errors": total_errors, "by_file": 
 
 
 def compact_current_session(force: bool = True) -> dict | None:
+    """Compact thủ công hoặc kiểm tra ngưỡng để compact tự động."""
     ss = st.session_state
     messages = list(ss.model_history)
     if not messages:
         return None
-    needed, reason = should_compact(messages, int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS)))
+    trigger_chars = int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS))
+    trigger_messages = int(ss.get("compact_trigger_messages", 0))
+    needed, reason = should_compact(messages, trigger_chars)
+    if not needed and trigger_messages > 0 and len(messages) >= trigger_messages:
+        needed = True
+        reason = f"số message đạt {len(messages)}, vượt ngưỡng {trigger_messages}"
     if not force and not needed:
         return None
     compacted = compact_messages(messages, prior_checkpoint=ss.get("compaction_checkpoint"))
@@ -569,12 +636,26 @@ def render_compaction_lab() -> None:
     with st.expander("B1 · Compact session dài (bắt buộc)", expanded=True):
         st.caption("Compaction tạo checkpoint có cấu trúc; giữ mục tiêu, ràng buộc, lỗi, cách đã thử, file và bước kế tiếp. Tool output dài được lưu trong archive của session, không đưa lại vào active messages.")
         ss = st.session_state
-        ss.setdefault("compact_trigger_chars", COMPACT_TRIGGER_CHARS)
-        ss.compact_trigger_chars = st.number_input(
-            "Ngưỡng tự compact (ký tự context ước tính)", min_value=2_000, max_value=200_000,
-            value=int(ss.compact_trigger_chars), step=2_000, key="compact_trigger_input",
-            help="Đây là ngưỡng ký tự, không phải số token. Snapshot API vẫn hiển thị usage do provider trả về.",
+        auto_col, threshold_col = st.columns([1, 2])
+        with auto_col:
+            ss.auto_compact_enabled = st.toggle(
+                "Compact tự động",
+                value=ss.get("auto_compact_enabled", AUTO_COMPACT_ENABLED),
+                key="auto_compact_toggle",
+                help="Khi bật, context sẽ tự compact trước lượt gọi model kế tiếp nếu vượt ngưỡng.",
+            )
+        with threshold_col:
+            ss.compact_trigger_chars = st.number_input(
+                "Ngưỡng tự compact (ký tự context ước tính)", min_value=2_000, max_value=200_000,
+                value=int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS)), step=2_000, key="compact_trigger_input",
+                help="Đây là ngưỡng ký tự, không phải số token. Snapshot API vẫn hiển thị usage do provider trả về.",
+            )
+        ss.compact_trigger_messages = st.number_input(
+            "Ngưỡng tự compact (số message, 0 = tắt)", min_value=0, max_value=500,
+            value=int(ss.get("compact_trigger_messages", COMPACT_TRIGGER_MESSAGES)), step=5, key="compact_trigger_msg_input",
+            help="Nếu > 0, compact khi số message trong history đạt ngưỡng này (bổ sung ngưỡng ký tự).",
         )
+
         before = message_chars(ss.model_history)
         st.metric("Active message context", f"{before:,} ký tự", help="Ước lượng theo nội dung message; không tính tokenizer của provider.")
         if not ss.model_history:
@@ -600,16 +681,47 @@ def render_compaction_lab() -> None:
             st.caption(f"Archive cục bộ có {len(ss.compaction_archive)} message; các message này không nằm trong active context gửi model.")
 
 
+def render_code_mode_results(result: dict) -> None:
+    if not result:
+        return
+    if not result.get("ok"):
+        st.error(f"Lỗi runtime: {result.get('error', 'Lỗi không xác định')}", icon=":material/error:")
+    else:
+        st.success("Chương trình thực thi thành công!", icon=":material/check_circle:")
+        st.markdown("**Kết quả (gán từ `result`):**")
+        st.json(result["result"], expanded=True)
+        output_text = json.dumps(result["result"], ensure_ascii=False, default=str)
+        if len(output_text) > CODE_MODE_MAX_OUTPUT_CHARS:
+            st.warning(
+                f"⚠️ Đầu ra có {len(output_text):,} ký tự, vượt giới hạn {CODE_MODE_MAX_OUTPUT_CHARS:,}. "
+                f"Runtime sẽ yêu cầu giảm kết quả.",
+                icon=":material/warning:",
+            )
+
+    meta_cols = st.columns(3)
+    meta_cols[0].metric("Files đã đọc", result.get("files_read", "N/A"))
+    meta_cols[1].metric("Bytes xử lý", f"{result.get('input_bytes_processed', 0):,}")
+    meta_cols[2].metric("Runtime", f"{result.get('runtime_ms', 0)} ms")
+    st.metric("Raw log chars → model", result.get("raw_log_chars_returned_to_model", 0),
+              help="Code Mode không trả raw log về model; giá trị này luôn là 0.")
+    st.caption("Chạy thử trực tiếp không gọi model; khi chat Code Mode, usage input/output thật hiện trong snapshot nếu provider trả về.")
+
+
 def render_code_mode_lab(mode: str) -> None:
     if mode != "code":
         return
-    with st.expander("Code Mode", expanded=True):
+    with st.expander("B2 · Code Mode (điểm cộng)", expanded=True):
         st.caption("Model chỉ được cấp run_code cùng memory tools. Chương trình đọc log qua SDK nội bộ, tổng hợp kết quả rồi mới trả findings; raw log không được trả lại model.")
         code = st.text_area("Chương trình tổng hợp log (Python subset giới hạn)", value=DEMO_CODE, height=210, key="code_mode_editor")
-        if st.button("Chạy thử runtime cục bộ", key="run_code_demo"):
-            result = execute_code(code)
-            st.json(result, expanded=True)
-            st.caption("Chạy thử trực tiếp không gọi model; khi chat Code Mode, usage input/output thật hiện trong snapshot nếu provider trả về.")
+        col_run, col_reset = st.columns([1, 1])
+        if col_run.button("Chạy thử runtime cục bộ", key="run_code_demo", icon=":material/play_arrow:"):
+            res = execute_code(code)
+            st.session_state.code_mode_last_result = res
+        if col_reset.button("Xóa kết quả chạy thử", key="clear_code_demo"):
+            st.session_state.code_mode_last_result = None
+
+        if st.session_state.get("code_mode_last_result"):
+            render_code_mode_results(st.session_state.code_mode_last_result)
 
 
 def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
@@ -618,46 +730,42 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
     observer: Observer = ss.observer
     run_id = uuid.uuid4().hex
     observer.start_turn(run_id)
-    writer = TraceWriter(paths.TRACES_DIR, PROJECT_NAME, observer.conversation_id, run_id, observer.chat_turn)
+
     turn = {"run_id": run_id, "chat_turn": observer.chat_turn, "user": text, "answer": "", "error": None, "events": []}
     ss.ui_history.append(turn)
     working = list(ss.model_history) + [HumanMessage(content=text)]
+
     compacted_before_turn = None
-    needed, reason = should_compact(working, int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS)))
-    if needed and len(ss.model_history) > 0:
-        before_chars = message_chars(working)
-        # The live-model path keeps only the newest complete turn, leaving more TPM
-        # headroom than the manual demo while the checkpoint preserves older constraints.
-        result = compact_messages(working, keep_turns=1, prior_checkpoint=ss.get("compaction_checkpoint"))
-        ss.compaction_archive.extend(result.archived_messages)
-        ss.compaction_checkpoint = result.checkpoint.__dict__
-        ss.compaction_count += 1
-        compacted_before_turn = {
-            "reason": reason,
-            "before_chars": before_chars,
-            "after_chars": result.after_chars,
-            "archived_messages": len(result.archived_messages),
-            "archived_tool_chars": result.checkpoint.archived_tool_chars,
-        }
-        ss.compaction_stats = compacted_before_turn
-        ss.model_history = result.messages[:-1]
-        working = result.messages
+    if ss.get("auto_compact_enabled", AUTO_COMPACT_ENABLED) and len(ss.model_history) > 0:
+        trigger_chars = int(ss.get("compact_trigger_chars", COMPACT_TRIGGER_CHARS))
+        trigger_messages = int(ss.get("compact_trigger_messages", 0))
+        needed, reason = should_compact(working, trigger_chars)
+        if not needed and trigger_messages > 0 and len(working) >= trigger_messages:
+            needed = True
+            reason = f"số message đạt {len(working)}, vượt ngưỡng {trigger_messages}"
+        if needed:
+            before_chars = message_chars(working)
+            result = compact_messages(working, keep_turns=1, prior_checkpoint=ss.get("compaction_checkpoint"))
+            ss.compaction_archive.extend(result.archived_messages)
+            ss.compaction_checkpoint = result.checkpoint.__dict__
+            ss.compaction_count += 1
+            compacted_before_turn = {
+                "reason": reason,
+                "before_chars": before_chars,
+                "after_chars": result.after_chars,
+                "archived_messages": len(result.archived_messages),
+                "archived_tool_chars": result.checkpoint.archived_tool_chars,
+            }
+            ss.compaction_stats = compacted_before_turn
+            ss.model_history = result.messages[:-1]
+            working = result.messages
 
-    def emit(event_type: str, data: dict | None = None) -> None:
-        event = observer.record(event_type, data)
-        writer.write(event)
-        turn["events"].append(compact_event(event))
-
-    caps = capabilities(mode)
-    emit("user_submitted", {"text": text, "tools": caps["tools"], "skills": caps["skills"]})
-    observer.sync_messages(working)
-    if compacted_before_turn:
-        emit("context_compacted", compacted_before_turn)
+    writer = TraceWriter(paths.TRACES_DIR, PROJECT_NAME, observer.conversation_id, run_id, observer.chat_turn)
 
     with st.chat_message("user"):
         st.markdown(text)
     with st.chat_message("assistant"):
-        status = st.status("Đang xử lý…", expanded=True)
+        status = st.status("Agent đang xử lý…", expanded=True)
         trace_box = status.empty()
         answer_box = st.empty()
 
@@ -667,18 +775,29 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
         with state_box.container():
             render_state_panel(interactive=False)
 
-    refresh()
+    def emit(event_type: str, data: dict | None = None) -> None:
+        event = observer.record(event_type, data)
+        writer.write(event)
+        turn["events"].append(compact_event(event))
+        refresh()
+
+    caps = capabilities(mode)
+    emit("user_submitted", {"text": text, "tools": caps["tools"], "skills": caps["skills"]})
+    observer.sync_messages(working)
+    if compacted_before_turn is not None:
+        emit("context_compacted", compacted_before_turn)
+
     try:
-        agent = build_agent(build_model(settings), mode)
+        agent = build_agent(build_model(settings), mode=mode)
         stream = agent.stream(
             {"messages": working},
             config={"recursion_limit": RECURSION_LIMIT},
             stream_mode=["updates", "custom"],
         )
-        for mode, chunk in stream:
-            if mode == "custom" and isinstance(chunk, dict) and chunk.get("observer"):
+        for mode_chunk, chunk in stream:
+            if mode_chunk == "custom" and isinstance(chunk, dict) and chunk.get("observer"):
                 emit(chunk["event"], chunk["data"])
-            elif mode == "updates" and isinstance(chunk, dict):
+            elif mode_chunk == "updates" and isinstance(chunk, dict):
                 for update in chunk.values():
                     if isinstance(update, dict) and update.get("messages"):
                         working.extend(update["messages"])
@@ -695,10 +814,11 @@ def run_turn(text: str, settings, state_box, mode: str = "native") -> None:
         emit("run_failed", {"error": turn["error"]})
         observer.history_rolled_back = True
         status.update(label="Lỗi", state="error", expanded=True)
-        answer_box.error(turn["error"])
+        answer_box.error(format_error_message(turn["error"]))
     finally:
         refresh()
-    ss.pop("snapshot_choice", None)  # sau lượt mới, mặc định xem snapshot mới nhất
+
+    ss.pop("snapshot_choice", None)
     ss.pop("message_choice", None)
 
 
@@ -734,7 +854,6 @@ def render_output_files() -> None:
     st.download_button("Tải file", data=data, file_name=path.name, on_click="ignore")
 
 
-
 # ---------------------------------------------------------------- page
 
 
@@ -751,14 +870,17 @@ def main() -> None:
     header.title(APP_TITLE)
     header.button("Cuộc trò chuyện mới", icon=":material/add_comment:", on_click=new_conversation)
     st.caption(CAPABILITY_TEXT)
+
+    default_index = 1 if DEFAULT_MODE == "code" else 0
     mode_label = st.radio(
         "Chế độ tool",
         ["Native tools + Compact", "Code Mode"],
+        index=default_index,
         horizontal=True,
         key="challenge_mode_label",
         help="Compaction luôn hoạt động ở cả hai chế độ. Code Mode thay các tool file/shell bằng một tool chạy chương trình tổng hợp log.",
     )
-    mode = "code" if mode_label == "Code Mode" else "native"
+    mode = "code" if "Code Mode" in mode_label else "native"
     st.session_state.agent_mode = mode
 
     settings, missing = load_settings()
@@ -787,8 +909,14 @@ def main() -> None:
     prompt = st.chat_input("Nhập yêu cầu…", disabled=bool(missing))
     if prompt and settings is not None:
         with chat_box:
-            run_turn(prompt, settings, state_box, mode)
+            try:
+                run_turn(prompt, settings, state_box, mode)
+            except Exception as _fatal:
+                # Lớp bảo vệ cuối: nếu run_turn() tự crash thì vẫn giữ UI
+                _err_type = type(_fatal).__name__
+                st.error(f"Lỗi nghiêm trọng không khôi phục được: {_err_type}")
         st.rerun()
 
 
-main()
+if __name__ == "__main__":
+    main()

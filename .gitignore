@@ -1,6 +1,11 @@
 .env
+.env.local
 traces/*
 !traces/.gitkeep
 __pycache__/
 .pytest_cache/
 .venv/
+*.pyc
+*.log
+outputs/
+memory/memory.json
