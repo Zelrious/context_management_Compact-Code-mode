@@ -1,0 +1,11 @@
+{
+  "service_group": "checkout-payments",
+  "environment": "staging-eu-01",
+  "checkout_timeout_ms": 1500,
+  "db_pool_name": "payments-db",
+  "db_pool_max_connections": 25,
+  "connections_per_sync_worker": 3,
+  "allow_pool_resize": false,
+  "retry_policy": "exponential_max_2",
+  "change_policy": "READ_ONLY_SOURCE_DATA: khong sua bat ky tep nao duoi data/; ghi de xuat khac phuc vao output/incident-remediation.md"
+}

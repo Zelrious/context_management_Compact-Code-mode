@@ -1,0 +1,223 @@
+{
+  "project": "challenge-b-context-management",
+  "branch": "feat/evidence",
+  "config_limits": {
+    "compact_trigger_chars": 24000,
+    "code_mode_max_output_chars": 6000
+  },
+  "b1_results": {
+    "B1-SC01": {
+      "triggered": true,
+      "trigger_reason": "active context đạt 43,561 ký tự, vượt ngưỡng 24,000",
+      "before_chars": 43561,
+      "after_chars": 3163,
+      "reduction_pct": 92.74,
+      "raw_tool_chars_before": 41273,
+      "archived_messages": 19,
+      "archived_tool_chars": 41142,
+      "checkpoint": {
+        "version": 1,
+        "goal": "Phân tích data/workload.csv theo ngưỡng quá tải 8 giờ; tổng đúng bằng 8 không tính quá tải. Tuyệt đối không sửa CSV nguồn và phải liệt kê đầy đủ các dòng bị loại kèm mã lý do vào output/csv-quality.md.",
+        "user_requirements": [
+          "Phân tích data/workload.csv theo ngưỡng quá tải 8 giờ; tổng đúng bằng 8 không tính quá tải. Tuyệt đối không sửa CSV nguồn và phải liệt kê đầy đủ các dòng bị loại kèm mã lý do vào output/csv-quality.md.",
+          "Giữ nguyên ngưỡng 8 giờ (tổng đúng bằng 8 không tính quá tải), không chỉnh sửa data/workload.csv và chỉ lấy số liệu từ check_csv.py.",
+          "Kiểm tra lỗi ghi file vừa gặp và hoàn tất báo cáo đúng thư mục cho phép."
+        ],
+        "current_state": "Ghi báo cáo vào data/csv-quality.md bị từ chối với mã lỗi PATH_OUTSIDE_OUTPUT.\nBước tiếp theo: đọc template skills/csv-quality/references/report-template.md rồi dùng write_file ghi báo cáo vào output/csv-quality.md, giữ ngưỡng 8 giờ và không sửa data/workload.csv.",
+        "unresolved_issues": [
+          "bash: python skills/csv-quality/scripts/check_csv.py --input data/missing.csv --max-hours 8: error code INPUT_NOT_FOUND",
+          "bash: python skills/csv-quality/scripts/check_csv.py --input data/workload.csv --max-hours -5: exit_code=2",
+          "write_file: data/csv-quality.md: error code PATH_OUTSIDE_OUTPUT",
+          "Ghi báo cáo vào data/csv-quality.md bị từ chối với mã lỗi PATH_OUTSIDE_OUTPUT.\nBước tiếp theo: đọc template skills/csv-quality/references/report-template.md rồi dùng write_file ghi báo cáo vào output/csv-quality.md, giữ ngưỡng 8 giờ và không sửa data/workload.csv."
+        ],
+        "findings": [
+          "bash: row_count=6"
+        ],
+        "failed_attempts": [
+          "bash: python skills/csv-quality/scripts/check_csv.py --input data/missing.csv --max-hours 8: error code INPUT_NOT_FOUND",
+          "bash: python skills/csv-quality/scripts/check_csv.py --input data/workload.csv --max-hours -5: exit_code=2",
+          "write_file: data/csv-quality.md: error code PATH_OUTSIDE_OUTPUT"
+        ],
+        "relevant_files": [
+          "data/csv-quality.md",
+          "data/missing.csv",
+          "data/workload.csv",
+          "skills/csv-quality/SKILL.md"
+        ],
+        "next_action": "Ghi báo cáo vào data/csv-quality.md bị từ chối với mã lỗi PATH_OUTSIDE_OUTPUT.\nBước tiếp theo: đọc template skills/csv-quality/references/report-template.md rồi dùng write_file ghi báo cáo vào output/csv-quality.md, giữ ngưỡng 8 giờ và không sửa data/workload.csv.",
+        "archived_message_count": 19,
+        "archived_tool_chars": 41142
+      }
+    },
+    "B1-SC02": {
+      "triggered": true,
+      "trigger_reason": "active context đạt 50,927 ký tự, vượt ngưỡng 24,000",
+      "before_chars": 50927,
+      "after_chars": 3073,
+      "reduction_pct": 93.97,
+      "raw_tool_chars_before": 48473,
+      "archived_messages": 19,
+      "archived_tool_chars": 48473,
+      "checkpoint": {
+        "version": 1,
+        "goal": "Điều tra sự cố nghẽn kết nối giao dịch sau bản dựng 2026.10.24-rc3 bằng cách đối chiếu data/scenarios/b1_multifile_incident/service_sla_config.json, deploy_manifest.md, batch_workload.csv và runbook_notes.md; lập kế hoạch khắc phục tại output/incident-remediation.md.",
+        "user_requirements": [
+          "Điều tra sự cố nghẽn kết nối giao dịch sau bản dựng 2026.10.24-rc3 bằng cách đối chiếu data/scenarios/b1_multifile_incident/service_sla_config.json, deploy_manifest.md, batch_workload.csv và runbook_notes.md; lập kế hoạch khắc phục tại output/incident-remediation.md.",
+          "Ràng buộc bắt buộc: không chỉnh sửa bất kỳ tệp nào trong data/; giữ nguyên db_pool_max_connections=25 vì allow_pool_resize=false.",
+          "Áp dụng đúng ngưỡng --max-hours 6 cho batch_workload.csv (tổng đúng 6.0 giờ như Trang không tính quá tải) và chọn kỹ sư xác minh có tổng giờ hợp lệ nhỏ hơn 4.0 giờ."
+        ],
+        "current_state": "Lần ghi scenarios/incident-remediation.md thất bại với lỗi PATH_OUTSIDE_OUTPUT nên báo cáo chưa được lưu.\nBước tiếp theo: dùng write_file ghi kế hoạch vào output/incident-remediation.md (12*3=36 vượt db_pool_max_connections=25, rollback orders_sync_concurrency=4, phân công Khanh, không sửa data/).",
+        "unresolved_issues": [
+          "read_file: data/scenarios/b1_multifile_incident/redis_cluster.json: error code FILE_NOT_FOUND",
+          "bash: python skills/csv-quality/scripts/check_csv.py --verify-pool: exit_code=2",
+          "write_file: scenarios/incident-remediation.md: error code PATH_OUTSIDE_OUTPUT",
+          "Lần ghi scenarios/incident-remediation.md thất bại với lỗi PATH_OUTSIDE_OUTPUT nên báo cáo chưa được lưu.\nBước tiếp theo: dùng write_file ghi kế hoạch vào output/incident-remediation.md (12*3=36 vượt db_pool_max_connections=25, rollback orders_sync_concurrency=4, phân công Khanh, không sửa data/)."
+        ],
+        "findings": [
+          "bash: row_count=7"
+        ],
+        "failed_attempts": [
+          "read_file: data/scenarios/b1_multifile_incident/redis_cluster.json: error code FILE_NOT_FOUND",
+          "bash: python skills/csv-quality/scripts/check_csv.py --verify-pool: exit_code=2",
+          "write_file: scenarios/incident-remediation.md: error code PATH_OUTSIDE_OUTPUT"
+        ],
+        "relevant_files": [
+          "data/scenarios/b1_multifile_incident/batch_workload.csv",
+          "data/scenarios/b1_multifile_incident/deploy_manifest.md",
+          "data/scenarios/b1_multifile_incident/redis_cluster.json",
+          "data/scenarios/b1_multifile_incident/runbook_notes.md",
+          "data/scenarios/b1_multifile_incident/service_sla_config.json",
+          "scenarios/incident-remediation.md"
+        ],
+        "next_action": "Lần ghi scenarios/incident-remediation.md thất bại với lỗi PATH_OUTSIDE_OUTPUT nên báo cáo chưa được lưu.\nBước tiếp theo: dùng write_file ghi kế hoạch vào output/incident-remediation.md (12*3=36 vượt db_pool_max_connections=25, rollback orders_sync_concurrency=4, phân công Khanh, không sửa data/).",
+        "archived_message_count": 19,
+        "archived_tool_chars": 48473
+      }
+    },
+    "B1-UI-Demo": {
+      "reason": "active context đạt 120,012 ký tự, vượt ngưỡng 24,000",
+      "before_chars": 120012,
+      "after_chars": 4354,
+      "archived_messages": 15,
+      "archived_tool_chars": 116852
+    }
+  },
+  "b2_results": {
+    "B2-SC01": {
+      "ok": true,
+      "files_read": 5,
+      "input_bytes_processed": 46864,
+      "output_json_chars": 1283,
+      "raw_log_chars_returned_to_model": 0,
+      "result": {
+        "files_analyzed": 5,
+        "total_errors": 26,
+        "total_warnings": 240,
+        "deduplicated_noise": {
+          "upstream_slow_retry": 120,
+          "cache_miss_fallback": 60
+        },
+        "critical_findings": [
+          {
+            "file": "data/logs/incident_cascade/payments-ledger.log",
+            "code": "CRITICAL_POOL_EXHAUSTED",
+            "count": 1
+          }
+        ],
+        "correlated_traces": {
+          "trc-9041": [
+            {
+              "file": "data/logs/incident_cascade/gateway-edge.log",
+              "matches": 6
+            },
+            {
+              "file": "data/logs/incident_cascade/malformed-collector.txt",
+              "matches": 1
+            },
+            {
+              "file": "data/logs/incident_cascade/orders-core.log",
+              "matches": 4
+            },
+            {
+              "file": "data/logs/incident_cascade/payments-ledger.log",
+              "matches": 1
+            }
+          ],
+          "trc-9042": [
+            {
+              "file": "data/logs/incident_cascade/gateway-edge.log",
+              "matches": 4
+            },
+            {
+              "file": "data/logs/incident_cascade/orders-core.log",
+              "matches": 3
+            },
+            {
+              "file": "data/logs/incident_cascade/payments-ledger.log",
+              "matches": 4
+            }
+          ]
+        },
+        "by_file": [
+          {
+            "file": "data/logs/incident_cascade/auth-token.log",
+            "errors": 2,
+            "warnings": 60
+          },
+          {
+            "file": "data/logs/incident_cascade/gateway-edge.log",
+            "errors": 10,
+            "warnings": 120
+          },
+          {
+            "file": "data/logs/incident_cascade/malformed-collector.txt",
+            "errors": 2,
+            "warnings": 3
+          },
+          {
+            "file": "data/logs/incident_cascade/orders-core.log",
+            "errors": 7,
+            "warnings": 28
+          },
+          {
+            "file": "data/logs/incident_cascade/payments-ledger.log",
+            "errors": 5,
+            "warnings": 29
+          }
+        ]
+      }
+    },
+    "B2-SC02": {
+      "ok": true,
+      "files_read": 1,
+      "input_bytes_processed": 2091,
+      "output_json_chars": 201,
+      "raw_log_chars_returned_to_model": 0,
+      "result": {
+        "file": "data/logs/incident_cascade/malformed-collector.txt",
+        "total_lines": 40,
+        "empty_lines": 5,
+        "valid_info": 20,
+        "valid_warn": 3,
+        "valid_error": 2,
+        "malformed_lines": 10,
+        "backpressure_errors": 1
+      }
+    },
+    "B2-SC03": {
+      "oversized_blocked": true,
+      "oversized_error": "Kết quả vượt 6,000 ký tự; hãy chỉ trả thống kê/finding top-N.",
+      "tainted_blocked": true,
+      "tainted_error": "CodeModeError: Đầu ra có raw log. Chỉ trả số liệu tổng hợp, đường dẫn và metadata.",
+      "raw_log_chars_returned_to_model": 0
+    },
+    "B2-UI-Demo": {
+      "ok": true,
+      "files_read": 24,
+      "input_bytes_processed": 48882,
+      "output_json_chars": 1776,
+      "raw_log_chars_returned_to_model": 0,
+      "total_errors": 33
+    }
+  }
+}

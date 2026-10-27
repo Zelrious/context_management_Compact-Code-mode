@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "feature": "B1-Compact",
+  "description": "Bộ kịch bản tổng hợp kiểm chứng cơ chế nén ngữ cảnh (B1 Compact), bảo toàn thông tin quan trọng trong checkpoint và suy luận đa tệp.",
+  "scenarios": [
+    {
+      "id": "B1-SC01",
+      "slug": "workload_diagnostic_flood",
+      "title": "Phiên phân tích CSV kéo dài với nhiều lần thử lỗi và nhiễu chẩn đoán lặp lại",
+      "goal": "Phân tích data/workload.csv theo ngưỡng quá tải 8 giờ; tổng đúng bằng 8 không tính quá tải. Tuyệt đối không sửa CSV nguồn và phải liệt kê đầy đủ các dòng bị loại kèm mã lý do vào output/csv-quality.md.",
+      "followup_constraints": [
+        "Giữ nguyên ngưỡng 8 giờ (tổng đúng bằng 8 không tính quá tải), không chỉnh sửa data/workload.csv và chỉ lấy số liệu từ check_csv.py.",
+        "Kiểm tra lỗi ghi file vừa gặp và hoàn tất báo cáo đúng thư mục cho phép."
+      ],
+      "relevant_workspace_files": [
+        "data/workload.csv",
+        "skills/csv-quality/SKILL.md",
+        "skills/csv-quality/references/report-template.md"
+      ],
+      "expected_checklist": {
+        "min_before_chars": 24000,
+        "min_raw_tool_chars": 12000,
+        "must_trigger_auto_compact": true,
+        "goal_substrings": [
+          "data/workload.csv",
+          "8 giờ"
+        ],
+        "requirement_substrings": [
+          "tổng đúng bằng 8 không tính quá tải",
+          "không sửa CSV nguồn",
+          "output/csv-quality.md"
+        ],
+        "failed_attempt_substrings": [
+          "data/missing.csv",
+          "INPUT_NOT_FOUND",
+          "exit_code=2",
+          "data/csv-quality.md",
+          "PATH_OUTSIDE_OUTPUT"
+        ],
+        "unresolved_issue_substrings": [
+          "PATH_OUTSIDE_OUTPUT"
+        ],
+        "finding_substrings": [
+          "row_count=6"
+        ],
+        "relevant_files": [
+          "data/csv-quality.md",
+          "data/missing.csv",
+          "data/workload.csv",
+          "skills/csv-quality/SKILL.md"
+        ],
+        "next_action_substrings": [
+          "skills/csv-quality/references/report-template.md",
+          "output/csv-quality.md",
+          "không sửa data/workload.csv"
+        ],
+        "forbidden_active_substrings": [
+          "DIAGNOSTIC_NOISE_PADDING_LINE"
+        ]
+      }
+    },
+    {
+      "id": "B1-SC02",
+      "slug": "multifile_incident_debug",
+      "title": "Điều tra sự cố đa tệp (JSON cấu hình + nhật ký triển khai + CSV tải công việc + runbook)",
+      "goal": "Điều tra sự cố nghẽn kết nối giao dịch sau bản dựng 2026.10.24-rc3 bằng cách đối chiếu data/scenarios/b1_multifile_incident/service_sla_config.json, deploy_manifest.md, batch_workload.csv và runbook_notes.md; lập kế hoạch khắc phục tại output/incident-remediation.md.",
+      "followup_constraints": [
+        "Ràng buộc bắt buộc: không chỉnh sửa bất kỳ tệp nào trong data/; giữ nguyên db_pool_max_connections=25 vì allow_pool_resize=false.",
+        "Áp dụng đúng ngưỡng --max-hours 6 cho batch_workload.csv (tổng đúng 6.0 giờ như Trang không tính quá tải) và chọn kỹ sư xác minh có tổng giờ hợp lệ nhỏ hơn 4.0 giờ."
+      ],
+      "relevant_workspace_files": [
+        "data/scenarios/b1_multifile_incident/service_sla_config.json",
+        "data/scenarios/b1_multifile_incident/deploy_manifest.md",
+        "data/scenarios/b1_multifile_incident/batch_workload.csv",
+        "data/scenarios/b1_multifile_incident/runbook_notes.md"
+      ],
+      "multi_file_questions": [
+        {
+          "question_id": "MF-Q1",
+          "prompt": "Dựa vào cấu hình SLA và nhật ký triển khai 2026.10.24-rc3, tại sao pool payments-db bị cạn kết nối và thông số nào phải rollback về giá trị bao nhiêu?",
+          "required_files": [
+            "data/scenarios/b1_multifile_incident/service_sla_config.json",
+            "data/scenarios/b1_multifile_incident/deploy_manifest.md",
+            "data/scenarios/b1_multifile_incident/runbook_notes.md"
+          ],
+          "expected_facts": [
+            "orders_sync_concurrency tăng từ 4 lên 12",
+            "connections_per_sync_worker = 3 nên chiếm 12 * 3 = 36 kết nối",
+            "vượt db_pool_max_connections = 25 và allow_pool_resize = false",
+            "rollback orders_sync_concurrency=4"
+          ]
+        },
+        {
+          "question_id": "MF-Q2",
+          "prompt": "Kết hợp batch_workload.csv và runbook_notes.md ở ngưỡng 6 giờ, kỹ sư nào quá tải, những dòng nào bị loại, và ai được phân công xác minh bản vá?",
+          "required_files": [
+            "data/scenarios/b1_multifile_incident/batch_workload.csv",
+            "data/scenarios/b1_multifile_incident/runbook_notes.md"
+          ],
+          "expected_facts": [
+            "Hieu quá tải với 7.5 giờ (> 6)",
+            "Trang có 6.0 giờ đúng bằng ngưỡng nên không quá tải",
+            "Khanh có 2.5 giờ (< 4.0 giờ và không quá tải) nên được chỉ định xác minh",
+            "Ba dòng bị loại: INC-05 (invalid_hours), INC-02 dòng 7 (duplicate_id), INC-06 (missing_owner)"
+          ]
+        }
+      ],
+      "expected_checklist": {
+        "min_before_chars": 24000,
+        "min_raw_tool_chars": 12000,
+        "must_trigger_auto_compact": true,
+        "goal_substrings": [
+          "2026.10.24-rc3",
+          "service_sla_config.json",
+          "output/incident-remediation.md"
+        ],
+        "requirement_substrings": [
+          "db_pool_max_connections=25",
+          "--max-hours 6",
+          "nhỏ hơn 4.0 giờ"
+        ],
+        "failed_attempt_substrings": [
+          "redis_cluster.json",
+          "FILE_NOT_FOUND",
+          "exit_code=2",
+          "scenarios/incident-remediation.md",
+          "PATH_OUTSIDE_OUTPUT"
+        ],
+        "unresolved_issue_substrings": [
+          "PATH_OUTSIDE_OUTPUT"
+        ],
+        "finding_substrings": [
+          "row_count=7"
+        ],
+        "relevant_files": [
+          "data/scenarios/b1_multifile_incident/batch_workload.csv",
+          "data/scenarios/b1_multifile_incident/deploy_manifest.md",
+          "data/scenarios/b1_multifile_incident/redis_cluster.json",
+          "data/scenarios/b1_multifile_incident/runbook_notes.md",
+          "data/scenarios/b1_multifile_incident/service_sla_config.json",
+          "scenarios/incident-remediation.md"
+        ],
+        "next_action_substrings": [
+          "output/incident-remediation.md",
+          "orders_sync_concurrency=4",
+          "Khanh"
+        ],
+        "forbidden_active_substrings": [
+          "VERBOSE_POOL_TRACE_DUMP"
+        ]
+      }
+    },
+    {
+      "id": "B1-SC03",
+      "slug": "iterative_recompaction_and_ui_demo",
+      "title": "Nén lặp nhiều vòng (multi-round compaction) và tái lập phiên mẫu giao diện",
+      "goal": "Kiểm chứng kế thừa prior_checkpoint qua 2 chu kỳ compact liên tiếp mà không đánh mất mục tiêu gốc, ràng buộc giai đoạn 1 hoặc ràng buộc bổ sung ở giai đoạn 2.",
+      "expected_checklist": {
+        "preserves_initial_goal": true,
+        "preserves_round1_and_round2_requirements": true,
+        "monotonic_archive_counters": true,
+        "ui_demo_before_chars": 120012,
+        "ui_demo_after_chars_max": 6000
+      }
+    },
+    {
+      "id": "B1-SC04",
+      "slug": "compaction_known_limitations_audit",
+      "title": "Kiểm toán giới hạn thiết kế thực tế của bộ compact rule-based hiện hành",
+      "goal": "Ghi nhận trung thực hành vi thực tế của compaction.py: lược bỏ thông điệp lỗi tự do trong ToolMessage để chống rò rỉ raw log, giới hạn tối đa 8 mục requirements/failures và giữ lịch sử lỗi cũ trong unresolved_issues.",
+      "expected_checklist": {
+        "omits_raw_stderr_from_tool_summary": true,
+        "retains_max_8_requirements": true,
+        "retains_historical_tool_errors_in_unresolved": true
+      }
+    }
+  ]
+}
