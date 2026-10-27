@@ -54,6 +54,7 @@ def test_project_has_only_its_own_modules():
     assert sorted(p.name for p in ROOT.glob("*.py")) == [
         "agent.py",
         "app.py",
+        "compaction.py",
         "config.py",
         "memory_store.py",
         "observer.py",
@@ -63,6 +64,6 @@ def test_project_has_only_its_own_modules():
         "skill_catalog.py",
         "trace.py",
     ]
-    assert sorted(p.name for p in (ROOT / "tools").glob("*.py")) == ["__init__.py", "bash.py", "files.py", "memory.py"]
+    assert sorted(p.name for p in (ROOT / "tools").glob("*.py")) == ["__init__.py", "bash.py", "code_mode.py", "files.py", "memory.py"]
     assert sorted(p.name for p in (ROOT / "fixtures" / "skills").iterdir()) == ["csv-quality", "weekly-report"]
     assert sorted(p.name for p in (ROOT / "workspace" / "skills").iterdir()) == ["csv-quality", "weekly-report"]
