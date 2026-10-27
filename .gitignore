@@ -7,5 +7,8 @@ __pycache__/
 .venv/
 *.pyc
 *.log
+!fixtures/data/logs/**/*.log
+!workspace/data/logs/**/*.log
+!test-evidence/**/*.log
 outputs/
 memory/memory.json

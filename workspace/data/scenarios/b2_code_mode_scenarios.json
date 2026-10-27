@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "feature": "B2-Code-Mode",
+  "description": "Bộ kịch bản kiểm chứng B2 Code Mode: tương quan lỗi đa tệp, khử nhiễu lặp, bảo toàn lỗi nghiêm trọng đơn lẻ, xử lý dòng log hỏng và tuân thủ giới hạn đầu ra / chống rò rỉ raw log.",
+  "scenarios": [
+    {
+      "id": "B2-SC01",
+      "slug": "incident_cascade_correlation",
+      "title": "Tương quan lỗi dây chuyền qua 5 tệp log, khử nhiễu lặp và giữ lỗi nghiêm trọng đơn lẻ",
+      "question": "Quét toàn bộ log trong data/logs/incident_cascade/, thống kê ERROR/WARN theo tệp, gộp các cảnh báo lặp tần suất cao, xác định các tệp cùng xuất hiện trace_id=trc-9041 và trc-9042, đồng thời tìm mọi lỗi CRITICAL_POOL_EXHAUSTED.",
+      "code": "files = tools.list_files(\"incident_cascade/*\")\nper_file = []\ntrc_9041_files = []\ntrc_9042_files = []\ncritical_files = []\ntotal_errors = 0\ntotal_warns = 0\nslow_retry_noise = 0\ncache_miss_noise = 0\nfor path in files:\n    content = tools.read_file(path)\n    errs = 0\n    warns = 0\n    c_9041 = 0\n    c_9042 = 0\n    crit = 0\n    for line in content.splitlines():\n        if \"ERROR\" in line:\n            errs += 1\n        if \"WARN\" in line:\n            warns += 1\n        if \"trace_id=trc-9041\" in line:\n            c_9041 += 1\n        if \"trace_id=trc-9042\" in line:\n            c_9042 += 1\n        if \"CRITICAL_POOL_EXHAUSTED\" in line:\n            crit += 1\n        if \"upstream_slow_retry\" in line:\n            slow_retry_noise += 1\n        if \"cache_miss_fallback\" in line:\n            cache_miss_noise += 1\n    total_errors += errs\n    total_warns += warns\n    if c_9041 > 0:\n        trc_9041_files.append({\"file\": path, \"matches\": c_9041})\n    if c_9042 > 0:\n        trc_9042_files.append({\"file\": path, \"matches\": c_9042})\n    if crit > 0:\n        critical_files.append({\"file\": path, \"code\": \"CRITICAL_POOL_EXHAUSTED\", \"count\": crit})\n    per_file.append({\"file\": path, \"errors\": errs, \"warnings\": warns})\nresult = {\n    \"files_analyzed\": len(files),\n    \"total_errors\": total_errors,\n    \"total_warnings\": total_warns,\n    \"deduplicated_noise\": {\n        \"upstream_slow_retry\": slow_retry_noise,\n        \"cache_miss_fallback\": cache_miss_noise\n    },\n    \"critical_findings\": critical_files,\n    \"correlated_traces\": {\n        \"trc-9041\": trc_9041_files,\n        \"trc-9042\": trc_9042_files\n    },\n    \"by_file\": per_file\n}",
+      "expected": {
+        "ok": true,
+        "files_read": 5,
+        "raw_log_chars_returned_to_model": 0,
+        "max_output_chars": 6000,
+        "total_errors": 26,
+        "total_warnings": 240,
+        "deduplicated_noise": {
+          "upstream_slow_retry": 120,
+          "cache_miss_fallback": 60
+        },
+        "critical_findings": [
+          {
+            "file": "data/logs/incident_cascade/payments-ledger.log",
+            "code": "CRITICAL_POOL_EXHAUSTED",
+            "count": 1
+          }
+        ],
+        "trc_9041_files": [
+          "data/logs/incident_cascade/gateway-edge.log",
+          "data/logs/incident_cascade/malformed-collector.txt",
+          "data/logs/incident_cascade/orders-core.log",
+          "data/logs/incident_cascade/payments-ledger.log"
+        ],
+        "trc_9042_files": [
+          "data/logs/incident_cascade/gateway-edge.log",
+          "data/logs/incident_cascade/orders-core.log",
+          "data/logs/incident_cascade/payments-ledger.log"
+        ]
+      }
+    },
+    {
+      "id": "B2-SC02",
+      "slug": "malformed_log_handling",
+      "title": "Xử lý an toàn tệp log .txt lẫn các dòng trống, cắt cụt và sai định dạng",
+      "question": "Phân tích data/logs/incident_cascade/malformed-collector.txt, tách bạch dòng hợp lệ (INFO/WARN/ERROR), dòng trống và dòng sai định dạng mà không làm sập runtime.",
+      "code": "content = tools.read_file(\"data/logs/incident_cascade/malformed-collector.txt\")\nlines = content.splitlines()\nempty_lines = 0\nvalid_info = 0\nvalid_warn = 0\nvalid_error = 0\nmalformed_lines = 0\nbackpressure_errors = 0\nfor raw_line in lines:\n    trimmed = raw_line.strip()\n    if len(trimmed) == 0:\n        empty_lines += 1\n    elif trimmed.startswith(\"2026-10-25T\") and (\" INFO \" in trimmed or \" WARN \" in trimmed or \" ERROR \" in trimmed):\n        if \" INFO \" in trimmed:\n            valid_info += 1\n        elif \" WARN \" in trimmed:\n            valid_warn += 1\n        else:\n            valid_error += 1\n            if \"BACKPRESSURE\" in trimmed:\n                backpressure_errors += 1\n    else:\n        malformed_lines += 1\nresult = {\n    \"file\": \"data/logs/incident_cascade/malformed-collector.txt\",\n    \"total_lines\": len(lines),\n    \"empty_lines\": empty_lines,\n    \"valid_info\": valid_info,\n    \"valid_warn\": valid_warn,\n    \"valid_error\": valid_error,\n    \"malformed_lines\": malformed_lines,\n    \"backpressure_errors\": backpressure_errors\n}",
+      "expected": {
+        "ok": true,
+        "files_read": 1,
+        "raw_log_chars_returned_to_model": 0,
+        "result": {
+          "file": "data/logs/incident_cascade/malformed-collector.txt",
+          "total_lines": 40,
+          "empty_lines": 5,
+          "valid_info": 20,
+          "valid_warn": 3,
+          "valid_error": 2,
+          "malformed_lines": 10,
+          "backpressure_errors": 1
+        }
+      }
+    },
+    {
+      "id": "B2-SC03",
+      "slug": "limits_and_guardrails",
+      "title": "Kiểm chứng chặn kết quả vượt 6.000 ký tự, chặn rò rỉ taint raw log và thực thi qua Agent + Observer",
+      "question": "Xác nhận runtime từ chối kết quả vượt MAX_RESULT_CHARS (6.000 ký tự), từ chối chuỗi trích xuất trực tiếp từ raw log (tainted), và khi chạy qua Agent Code Mode thì snapshot gửi model chỉ chứa số liệu tổng hợp.",
+      "oversized_code": "files = tools.list_files(\"incident_cascade/*\")\nrows = []\nidx = 0\nfor path in files:\n    for line in tools.read_file(path).splitlines():\n        idx += 1\n        rows.append({\"file\": path, \"line_index\": idx, \"char_length\": len(line), \"is_error\": \"ERROR\" in line})\nresult = rows",
+      "tainted_slice_code": "content = tools.read_file(\"data/logs/incident_cascade/payments-ledger.log\")\nmatched = \"\"\nfor line in content.splitlines():\n    if \"CRITICAL_POOL_EXHAUSTED\" in line:\n        matched = line.split(\" \")[2]\nresult = {\"leaked_token\": matched}",
+      "expected": {
+        "oversized_ok": false,
+        "oversized_error_substring": "6,000",
+        "tainted_ok": false,
+        "tainted_error_substring": "raw log",
+        "raw_log_chars_returned_to_model": 0
+      }
+    }
+  ]
+}

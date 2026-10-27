@@ -1,0 +1,40 @@
+2026-10-25T14:03:00Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:01Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:02Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:03Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:04Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:05Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:06Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:07Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:08Z INFO span_collector_flush spans=64 status=ok
+2026-10-25T14:03:09Z INFO span_collector_flush spans=64 status=ok
+
+2026-10-25T14:03
+corrupted_packet_frame seq=881 payload=<<<truncated>>>
+2026-10-25T14:03:50Z WARN span_queue_watermark pct=82
+||BROKEN_FRAME_HEADER|| checksum_mismatch
+
+2026-10-25T14:03:52Z WARN span_queue_watermark pct=85
+--- log rotation marker without timestamp ---
+partial_json={"service":"orders-core","ok":
+2026-10-25T14:04:01Z ERROR collector_drop_buffer dropped_frames=17 reason=BACKPRESSURE
+
+bad_timestamp_9999-99-99 unknown_level message_without_schema
+   
+raw_socket_eof peer=10.24.8.19:9411
+2026-10-25T14:03:55Z WARN span_queue_watermark pct=89
+<<<<<<RING_BUFFER_OVERFLOW_MARKER>>>>>>
+orphan_stack_fragment_at_worker_loop_line_142
+
+unparsed_metric_dump cpu=0.91 mem=0.77
+2026-10-25T14:04:05Z ERROR collector_upstream_reset trace_id=trc-9041 peer=orders-core
+2026-10-25T14:04:10Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:11Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:12Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:13Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:14Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:15Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:16Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:17Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:18Z INFO span_collector_flush spans=32 status=ok
+2026-10-25T14:04:19Z INFO span_collector_flush spans=32 status=ok

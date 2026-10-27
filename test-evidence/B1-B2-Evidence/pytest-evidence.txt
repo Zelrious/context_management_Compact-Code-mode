@@ -1,0 +1,19 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.2, pytest-9.1.1, pluggy-1.7.0 -- C:\Users\Administrator\Desktop\workspace\context_management_Compact-Code-mode\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Administrator\Desktop\workspace\context_management_Compact-Code-mode
+configfile: pyproject.toml
+plugins: anyio-4.15.1, langsmith-0.14.12
+collecting ... collected 9 items
+
+tests/test_evidence_scenarios.py::test_b1_sc01_long_diagnostic_flood_triggers_and_preserves_checklist PASSED [ 11%]
+tests/test_evidence_scenarios.py::test_b1_sc02_multifile_incident_workspace_consistency PASSED [ 22%]
+tests/test_evidence_scenarios.py::test_b1_sc02_multifile_compaction_and_agent_snapshot_continuation PASSED [ 33%]
+tests/test_evidence_scenarios.py::test_b1_sc03_multi_round_recompaction_and_ui_demo_parity PASSED [ 44%]
+tests/test_evidence_scenarios.py::test_b1_sc04_documented_compaction_boundaries PASSED [ 55%]
+tests/test_evidence_scenarios.py::test_b2_sc01_incident_cascade_correlation_deduplication_and_critical_error PASSED [ 66%]
+tests/test_evidence_scenarios.py::test_b2_sc02_malformed_txt_log_safe_aggregation PASSED [ 77%]
+tests/test_evidence_scenarios.py::test_b2_sc03_output_limit_taint_guard_and_agent_snapshot_isolation PASSED [ 88%]
+tests/test_evidence_scenarios.py::test_b2_ui_demo_code_works_with_expanded_synthetic_logs PASSED [100%]
+
+============================== 9 passed in 4.59s ==============================
